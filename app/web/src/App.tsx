@@ -318,35 +318,36 @@ export default function App() {
       {/* 从 248px 侧栏改为 56px 图标条：导航不再和分类抢垂直空间，
           分类移到主内容区顶部的筛选条。 */}
       <aside className="rail">
-        <div className="rail-logo" title="电报情报站"><Zap size={15} color="#fff" strokeWidth={2.2} /></div>
+        <div className="rail-logo" title="电报情报站" aria-hidden="true"><Zap size={15} color="#fff" strokeWidth={2.2} /></div>
 
-        <button className={'rail-btn' + (view === 'feed' ? ' on' : '')} title="全部信息流"
+        <button className={'rail-btn' + (view === 'feed' ? ' on' : '')} title="全部信息流" aria-label="全部信息流"
           onClick={() => { setView('feed'); setCat(''); setTags([]); setChannel(''); setQ(''); }}><Radio size={17} strokeWidth={1.75} /></button>
-        <button className={'rail-btn' + (view === 'favs' ? ' on' : '')} title={'我的收藏' + (favIds.length ? '（' + favIds.length + ' 条）' : '')}
+        <button className={'rail-btn' + (view === 'favs' ? ' on' : '')} title={'我的收藏' + (favIds.length ? '（' + favIds.length + ' 条）' : '')} aria-label="我的收藏"
           onClick={showFavs}><Star size={17} strokeWidth={1.75} /></button>
-        <button className={'rail-btn' + (rightOpen && panel === 'chat' ? ' on' : '')} title="AI 情报助手"
+        <button className={'rail-btn' + (rightOpen && panel === 'chat' ? ' on' : '')} title="AI 情报助手" aria-label="AI 情报助手"
           onClick={() => { setPanel('chat'); setRightOpen(true); }}><Sparkles size={17} strokeWidth={1.75} /></button>
-        <button className="rail-btn" title="按链接抓取" onClick={() => setAddSourceOpen(true)}><Link2 size={17} strokeWidth={1.75} /></button>
-        <button className="rail-btn" title={'关键词订阅' + (topKw.length ? '（' + topKw.length + ' 个命中）' : '')}
+        <button className="rail-btn" title="按链接抓取" aria-label="按链接抓取" onClick={() => setAddSourceOpen(true)}><Link2 size={17} strokeWidth={1.75} /></button>
+        <button className="rail-btn" title={'关键词订阅' + (topKw.length ? '（' + topKw.length + ' 个命中）' : '')} aria-label="关键词订阅"
           onClick={() => setSubsOpen(true)}><Bell size={17} strokeWidth={1.75} /></button>
 
         <div className="rail-sep" />
-        <button className="rail-btn" title="一键补齐：增量抓取全部来源"
+        <button className="rail-btn" title="一键补齐：增量抓取全部来源" aria-label="一键补齐"
           onClick={async () => { try { await runSync(2000); } catch (e) {} }}><RefreshCw size={17} strokeWidth={1.75} /></button>
 
         <span style={{ flex: 1 }} />
 
-        <button className="rail-btn" title={theme === 'dark' ? '切换到浅色' : '切换到深色'}
+        <button className="rail-btn" title={theme === 'dark' ? '切换到浅色' : '切换到深色'} aria-label="切换深浅色主题"
           onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? <Sun size={17} strokeWidth={1.75} /> : <Moon size={17} strokeWidth={1.75} />}</button>
-        <button className="rail-btn" title={'字号：' + (size === 's' ? '紧凑' : size === 'l' ? '宽松' : '舒适')}
+        <button className="rail-btn" title={'字号：' + (size === 's' ? '紧凑' : size === 'l' ? '宽松' : '舒适')} aria-label="切换字号"
           onClick={() => setSize(size === 'm' ? 'l' : size === 'l' ? 's' : 'm')}><Type size={17} strokeWidth={1.75} /></button>
-        <button className="rail-btn" title="设置" onClick={() => setSettingsOpen(true)}><Settings size={17} strokeWidth={1.75} /></button>
+        <button className="rail-btn" title="设置" aria-label="设置" onClick={() => setSettingsOpen(true)}><Settings size={17} strokeWidth={1.75} /></button>
       </aside>
 
 
 
       {/* ---------- main ---------- */}
       <main style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <h1 className="sr-only">电报情报站 · 技术线报与项目雷达</h1>
         <TopProgress />
         <div className="surface" style={{ borderBottom: '1px solid var(--border-soft)', padding: '12px 16px 0' }}>
           <div style={{ display: 'flex', gap: 9, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -403,7 +404,7 @@ export default function App() {
         <div className="surface" style={{ borderBottom: '1px solid var(--border-soft)', padding: '8px 16px' }}>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 9, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 12.5, color: 'var(--fg-dim)' }}>
+            <span aria-live="polite" style={{ fontSize: 'var(--fs-meta)', color: 'var(--fg-dim)' }}>
               {view === 'favs' ? <>{'收藏 ' + favPosts.length + ' 条'}</> : <>{loading && page === 1 ? '检索中…' : ('找到约 ' + fmtNum(total) + ' 条')}</>}
               {newSince > 0 && !sinceFilter && view === 'feed' && (
                 <button className="btn ghost" style={{ padding: '1px 9px', fontSize: 12, marginLeft: 10, color: 'var(--green)', borderColor: 'color-mix(in srgb, var(--green) 45%, transparent)' }}
@@ -473,7 +474,7 @@ export default function App() {
             <button className={'btn ghost' + (panel === 'chat' ? '' : '')} style={{ background: panel === 'chat' ? 'var(--bg-3)' : 'transparent', color: panel === 'chat' ? 'var(--fg)' : 'var(--fg-dim)' }} onClick={() => setPanel('chat')}><Sparkles size={14} strokeWidth={1.75} /> AI 助手</button>
             <button className="btn ghost" style={{ background: panel === 'detail' ? 'var(--bg-3)' : 'transparent', color: panel === 'detail' ? 'var(--fg)' : 'var(--fg-dim)' }} onClick={() => setPanel('detail')} disabled={!sel}><FileText size={14} strokeWidth={1.75} /> 详情</button>
             <span style={{ flex: 1 }} />
-            <button className="btn ghost" onClick={() => setRightOpen(false)} title="收起"><PanelRightClose size={15} strokeWidth={1.75} /></button>
+            <button className="btn ghost" onClick={() => setRightOpen(false)} title="收起" aria-label="收起右侧面板"><PanelRightClose size={15} strokeWidth={1.75} /></button>
           </div>
           <div style={{ flex: 1, overflow: 'hidden' }}>
             {panel === 'chat'

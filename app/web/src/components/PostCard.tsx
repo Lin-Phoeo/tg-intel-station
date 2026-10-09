@@ -19,7 +19,14 @@ export function PostCard({ post, active, terms, onOpen }: { post: Post; active: 
   const key = post.tags.filter(t => KEY_TAGS.includes(t)).slice(0, 3);
 
   return (
-    <article className={cx('row', 'anim-in', active && 'active')} onClick={() => onOpen(post)}>
+    <article
+      className={cx('row', 'anim-in', active && 'active')}
+      role="button"
+      tabIndex={0}
+      aria-label={'打开详情：' + post.category + ' · ' + title.slice(0, 40)}
+      onClick={() => onOpen(post)}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(post); } }}
+    >
       {/* 元信息行：色点 · 分类 · 关键标签 ······ 来源数 · 域名 · 阅读 · 时间 */}
       <div className="row-meta">
         <span className="row-dot" style={{ background: c }} />
@@ -39,7 +46,7 @@ export function PostCard({ post, active, terms, onOpen }: { post: Post; active: 
       <div className="row-title">{highlight(title, terms)}</div>
       {body.trim() && <div className="text-body clamp-2 row-body">{highlight(body.trim(), terms)}</div>}
 
-      {active && <Star size={13} strokeWidth={2} className="row-star" />}
+      {active && <Star size={13} strokeWidth={2} className="row-star" aria-hidden="true" />}
     </article>
   );
 }
