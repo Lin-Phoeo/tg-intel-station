@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { getSettings, saveSettings, testSettings } from '../api';
 import { ModelPicker } from './ModelPicker';
 import { BotSettings } from './BotSettings';
+import { Bot, Sparkles, Database } from 'lucide-react';
 import { BackupPanel } from './BackupPanel';
 import { SemanticPanel } from './SemanticPanel';
 
@@ -82,9 +83,9 @@ export function SettingsModal({ open, onClose, onActiveChange, initialTab }: { o
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }} onClick={onClose}>
       <div className="card" style={{ width: 680, maxWidth: '100%', maxHeight: '92vh', overflowY: 'auto', background: 'var(--bg-1)', padding: 24 }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
-          <button className="btn" style={{ background: tab === 'ai' ? 'var(--bg-3)' : 'transparent', borderColor: tab === 'ai' ? 'var(--accent)' : 'var(--border)' }} onClick={() => setTab('ai')}>AI 模型</button>
-          <button className="btn" style={{ background: tab === 'data' ? 'var(--bg-3)' : 'transparent', borderColor: tab === 'data' ? 'var(--accent)' : 'var(--border)', color: tab === 'data' ? 'var(--fg)' : 'var(--fg-dim)' }} onClick={() => setTab('data')}>数据备份</button>
-          <button className="btn" style={{ background: tab === 'bot' ? 'var(--bg-3)' : 'transparent', borderColor: tab === 'bot' ? 'var(--accent)' : 'var(--border)' }} onClick={() => setTab('bot')}>🤖 电报机器人</button>
+          <button className="btn" style={{ background: tab === 'ai' ? 'var(--bg-3)' : 'transparent', borderColor: tab === 'ai' ? 'var(--accent)' : 'var(--border)' }} onClick={() => setTab('ai')}><Sparkles size={14} strokeWidth={1.75} />AI 模型</button>
+          <button className="btn" style={{ background: tab === 'data' ? 'var(--bg-3)' : 'transparent', borderColor: tab === 'data' ? 'var(--accent)' : 'var(--border)', color: tab === 'data' ? 'var(--fg)' : 'var(--fg-dim)' }} onClick={() => setTab('data')}><Database size={14} strokeWidth={1.75} />数据备份</button>
+          <button className="btn" style={{ background: tab === 'bot' ? 'var(--bg-3)' : 'transparent', borderColor: tab === 'bot' ? 'var(--accent)' : 'var(--border)' }} onClick={() => setTab('bot')}><Bot size={14} strokeWidth={1.75} />电报机器人</button>
         </div>
 
         {tab === 'ai' && (<>
