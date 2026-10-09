@@ -85,6 +85,36 @@ test('facets 返回实时总数', () => {
   assert.ok(f.categories.length > 0);
 });
 
+test('同事件聚簇：同链接归到同一代表，默认折叠但可展开', () => {
+  const a = store.insertPost(rec({ msgId: 10, text: '聚簇测试第一条 事件描述', links: 'https://example.com/news/1', domains: 'example.com' }));
+  const b = store.insertPost(rec({ msgId: 11, channel: 'otherchan', text: '聚簇测试第二条 另一个频道发的同一事件', links: 'https://example.com/news/1', domains: 'example.com' }));
+  assert.equal(a.clustered, false);
+  assert.equal(b.clustered, true);
+  assert.equal(b.repId, a.id);
+
+  const r = store.search({ q: '聚簇测试', size: 20 });
+  const ids = r.items.map(x => x.id);
+  assert.ok(ids.includes(a.id), '代表条目应出现');
+  assert.ok(!ids.includes(b.id), '非代表条目应被折叠');
+  const rep = r.items.find(x => x.id === a.id);
+  assert.equal(rep.clusterSize, 2);
+
+  const members = store.clusterMembers(a.id);
+  assert.equal(members.length, 2);
+
+  const r2 = store.search({ q: '聚簇测试', size: 20, collapse: false });
+  assert.ok(r2.items.map(x => x.id).includes(b.id), '关闭折叠后两条都应出现');
+});
+
+test('聚簇：个人主页链接不参与聚合', () => {
+  const a = store.insertPost(rec({ msgId: 20, text: '主页链接测试甲', links: 'https://t.me/someuser' }));
+  const b = store.insertPost(rec({ msgId: 21, channel: 'chan2', text: '主页链接测试乙', links: 'https://t.me/someuser' }));
+  assert.equal(a.clustered, false);
+  assert.equal(b.clustered, false);
+  assert.equal(a.clusterSize, 1);
+  assert.equal(b.clusterSize, 1);
+});
+
 test('来源登记可增删查', () => {
   store.upsertSource({ id: 'somechan', kind: 'channel', title: '测试频道' });
   assert.ok(store.listSources().some(s => s.id === 'somechan'));

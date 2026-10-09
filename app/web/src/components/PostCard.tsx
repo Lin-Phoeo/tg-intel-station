@@ -11,6 +11,7 @@ export function PostCard({ post, active, terms, onOpen }: { post: Post; active: 
         <span className="badge" style={{ background: 'color-mix(in srgb, ' + c + ' 16%, transparent)', color: c }}>{post.category}</span>
         {post.value >= 6 && <span className="badge" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}>{'★ ' + post.value.toFixed(1)}</span>}
         {isFree && <span className="badge" style={{ background: 'color-mix(in srgb, var(--green) 15%, transparent)', color: 'var(--green)' }}>羊毛</span>}
+        {post.clusterSize > 1 && <span className="badge" title="同一事件被多个来源发布，已合并显示" style={{ background: 'var(--bg-3)', color: 'var(--fg-dim)' }}>{post.clusterSize + ' 个来源'}</span>}
         <span style={{ color: 'var(--fg-mute)', fontSize: 12.5 }}>{post.date}</span>
         <span style={{ color: 'var(--fg-mute)', fontSize: 12.5 }}>· {timeAgo(post.date)}</span>
         <span style={{ flex: 1 }} />

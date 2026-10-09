@@ -65,6 +65,7 @@ async function api(req, res, pathname, query) {
       tags: q.tags ? (Array.isArray(q.tags) ? q.tags : String(q.tags).split(',')).filter(Boolean) : [],
       sort: q.sort || 'relevance', page: Number(q.page || 1), size: Math.min(100, Number(q.size || 30)),
       minValue: Number(q.minValue || 0),
+      collapse: q.collapse === undefined ? true : q.collapse !== '0',
     });
     return send(res, 200, r);
   }
@@ -74,6 +75,9 @@ async function api(req, res, pathname, query) {
     const p = store.getPost(mPost[1]);
     return p ? send(res, 200, p) : send(res, 404, { error: 'not found' });
   }
+
+  const mClu = pathname.match(/^\/api\/cluster\/(\d+)$/);
+  if (mClu) return send(res, 200, { items: store.clusterMembers(mClu[1]) });
 
   const mRel = pathname.match(/^\/api\/related\/(\d+)$/);
   if (mRel) return send(res, 200, { items: store.related(mRel[1], 8) });

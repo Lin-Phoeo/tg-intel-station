@@ -1,8 +1,8 @@
 import { Post } from '../api';
 import { catColor, timeAgo, fmtNum } from '../lib/util';
 
-export function Detail({ post, rel, fav, onFav, onOpen, onAsk }: {
-  post: Post; rel: Post[]; fav: boolean;
+export function Detail({ post, rel, cluster, fav, onFav, onOpen, onAsk }: {
+  post: Post; rel: Post[]; cluster?: Post[]; fav: boolean;
   onFav: (p: Post) => void; onOpen: (p: Post) => void; onAsk: (p: Post) => void;
 }) {
   const c = catColor(post.category);
@@ -49,6 +49,23 @@ export function Detail({ post, rel, fav, onFav, onOpen, onAsk }: {
         <span>内容分 {post.content}</span>
         {post.tags.length > 0 && <span>标签 {post.tags.join(' / ')}</span>}
       </div>
+
+      {cluster && cluster.length > 1 && (
+        <>
+          <div className="divider" style={{ margin: '22px 0 14px' }} />
+          <div style={{ fontSize: 12.5, color: 'var(--fg-mute)', marginBottom: 10, letterSpacing: '.04em' }}>
+            {'同一事件的其他来源（共 ' + cluster.length + ' 个）'}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {cluster.filter(c => c.id !== post.id).map(c => (
+              <div key={c.id} className="card" style={{ padding: '10px 13px', cursor: 'pointer' }} onClick={() => onOpen(c)}>
+                <div style={{ fontSize: 12, color: 'var(--fg-mute)', marginBottom: 3 }}>{c.date + ' · @' + c.channel + ' · ' + c.category + ' · ' + c.value + ' 分'}</div>
+                <div className="clamp-2" style={{ fontSize: 13.5, color: 'var(--fg-dim)' }}>{c.text}</div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
 
       {rel && rel.length > 0 && (
         <>

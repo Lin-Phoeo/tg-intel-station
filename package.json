@@ -16,6 +16,10 @@
     "fetch": "node scrape/scrape.mjs",
     "report": "node scrape/report.mjs",
     "export": "node scrape/export.mjs",
-    "all": "npm run fetch && npm run index:build && npm run report"
+    "all": "npm run fetch && npm run index:build && npm run report",
+    "discover": "node scrape/discover.mjs",
+    "discover:lists": "node scrape/discover-lists.mjs",
+    "cluster": "node scrape/cluster.mjs",
+    "add:sources": "node scrape/add-sources.mjs"
   }
 }

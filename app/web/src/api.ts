@@ -3,7 +3,7 @@ export type Post = {
   id: number; channel: string; msgId: number; date: string; ts: number; views: number;
   media: string; text: string; category: string; categories: string[]; tags: string[];
   hashtags: string[]; value: number; content: number; url: string; links: string[];
-  domains: string[]; lpTitle: string;
+  domains: string[]; lpTitle: string; repId: number | null; clusterSize: number;
 };
 export type Facets = {
   categories: { k: string; n: number }[];
@@ -13,7 +13,7 @@ export type Facets = {
 };
 export type Filters = {
   q?: string; category?: string; channel?: string; from?: string; to?: string;
-  tags?: string[]; sort?: string; page?: number; size?: number; minValue?: number;
+  tags?: string[]; sort?: string; page?: number; size?: number; minValue?: number; collapse?: boolean;
 };
 export type SearchResult = { mode: string; total: number; page: number; size: number; items: Post[] };
 
@@ -43,6 +43,10 @@ export async function getPost(id: number): Promise<Post> {
 export async function related(id: number): Promise<{ items: Post[] }> {
   return (await fetch('/api/related/' + id)).json();
 }
+export async function getClusterMembers(repId: number): Promise<{ items: Post[] }> {
+  return (await fetch('/api/cluster/' + repId)).json();
+}
+
 export async function getSettings(): Promise<{ settings: any; presets: any[] }> {
   return (await fetch('/api/settings')).json();
 }

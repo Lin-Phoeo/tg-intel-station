@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { splitTerms } from '../../core/text.mjs';
 import { buildQuery, orExpr } from '../../core/query.mjs';
 import { orderBy, orderBySimple, bm25Expr } from '../../core/rank.mjs';
+import { clusterKey } from '../../core/cluster.mjs';
 
 export { splitTerms };
 
@@ -25,6 +26,7 @@ const SQL_POSTS = [
   '  text TEXT, category TEXT, categories TEXT, tags TEXT, hashtags TEXT,',
   '  value REAL, content REAL, url TEXT, links TEXT, domains TEXT, lp_title TEXT,',
   "  source TEXT DEFAULT 'channel', author TEXT DEFAULT '', group_title TEXT DEFAULT ''",
+  '  , cluster_key TEXT, rep_id INTEGER, cluster_size INTEGER DEFAULT 1, is_rep INTEGER DEFAULT 1',
   ')',
 ].join('\n');
 
@@ -35,6 +37,9 @@ function createSchema() {
   db.exec("CREATE TABLE IF NOT EXISTS sources(id TEXT PRIMARY KEY, kind TEXT, title TEXT, members TEXT, url TEXT, added_at TEXT, last_sync TEXT, imported INTEGER DEFAULT 0, note TEXT)");
   db.exec("CREATE TABLE IF NOT EXISTS job_runs(job_key TEXT NOT NULL, run_date TEXT NOT NULL, status TEXT NOT NULL, started_at TEXT, finished_at TEXT, detail TEXT, PRIMARY KEY(job_key, run_date))");
   db.exec('CREATE INDEX IF NOT EXISTS idx_posts_lookup ON posts(channel, msg_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_posts_cluster ON posts(cluster_key)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_posts_rep ON posts(rep_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_posts_isrep ON posts(is_rep)');
 }
 
 function migrate() {
@@ -42,15 +47,22 @@ function migrate() {
   if (cols.indexOf('source') < 0) db.exec("ALTER TABLE posts ADD COLUMN source TEXT DEFAULT 'channel'");
   if (cols.indexOf('author') < 0) db.exec("ALTER TABLE posts ADD COLUMN author TEXT DEFAULT ''");
   if (cols.indexOf('group_title') < 0) db.exec("ALTER TABLE posts ADD COLUMN group_title TEXT DEFAULT ''");
+  if (cols.indexOf('cluster_key') < 0) db.exec('ALTER TABLE posts ADD COLUMN cluster_key TEXT');
+  if (cols.indexOf('rep_id') < 0) db.exec('ALTER TABLE posts ADD COLUMN rep_id INTEGER');
+  if (cols.indexOf('cluster_size') < 0) db.exec('ALTER TABLE posts ADD COLUMN cluster_size INTEGER DEFAULT 1');
+  if (cols.indexOf('is_rep') < 0) db.exec('ALTER TABLE posts ADD COLUMN is_rep INTEGER DEFAULT 1');
   db.exec('CREATE INDEX IF NOT EXISTS idx_posts_lookup ON posts(channel, msg_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_posts_cluster ON posts(cluster_key)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_posts_rep ON posts(rep_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_posts_isrep ON posts(is_rep)');
   db.exec("CREATE TABLE IF NOT EXISTS job_runs(job_key TEXT NOT NULL, run_date TEXT NOT NULL, status TEXT NOT NULL, started_at TEXT, finished_at TEXT, detail TEXT, PRIMARY KEY(job_key, run_date))");
 }
 
 function ensureSchema() {
-  try {
-    const has = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='posts'").get();
-    if (!has) createSchema(); else migrate();
-  } catch (e) { /* 只读打开或迁移失败不应阻断服务 */ }
+  const has = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='posts'").get();
+  // 建表失败是硬错误，必须抛出；迁移失败可以忽略（例如只读打开旧库）
+  if (!has) { createSchema(); return; }
+  try { migrate(); } catch (e) { /* 只读打开或迁移失败不应阻断服务 */ }
 }
 
 export function close() {
@@ -85,13 +97,28 @@ export function insertPost(rec) {
   const d = open();
   const exists = d.prepare('SELECT id FROM posts WHERE channel = ? AND msg_id = ? LIMIT 1').get(rec.channel, rec.msgId);
   if (exists) return { inserted: false, id: exists.id, reason: 'duplicate' };
-  const info = d.prepare('INSERT INTO posts(' + POST_COLS + ') VALUES(' + POST_PH + ')').run(...recToRow(rec));
+  // 同事件聚簇：同键的条目归到同一代表，信息流默认只显示代表
+  const ckey = clusterKey(String(rec.links || '').split(/\s+/).filter(Boolean));
+  let repId = null, csize = 1;
+  if (ckey) {
+    // 只在「另一个频道」已有同键代表时聚合；同频道反复出现的同一链接是签名，不是同一事件
+    const ex = d.prepare('SELECT id, cluster_size FROM posts WHERE cluster_key = ? AND rep_id = id AND channel != ? LIMIT 1').get(ckey, rec.channel);
+    if (ex) {
+      repId = Number(ex.id);
+      csize = (Number(ex.cluster_size) || 1) + 1;
+      d.prepare('UPDATE posts SET cluster_size = ? WHERE id = ?').run(csize, repId);
+    }
+  }
+  const info = d.prepare('INSERT INTO posts(' + POST_COLS + ',cluster_key,rep_id,cluster_size,is_rep) VALUES(' + POST_PH + ',?,?,?,?)').run(
+    ...recToRow(rec), ckey, repId, csize, repId === null ? 1 : 0
+  );
   const id = Number(info.lastInsertRowid);
+  if (repId === null) d.prepare('UPDATE posts SET rep_id = ? WHERE id = ?').run(id, id);
   d.prepare('INSERT INTO posts_fts(rowid,text,tags,domains,channel) VALUES(?,?,?,?,?)').run(
     id, rec.text || '', rec.tags || '', rec.domains || '', rec.channel
   );
   countCache = { n: 0, at: 0 };
-  return { inserted: true, id: id };
+  return { inserted: true, id: id, clustered: repId !== null, repId: repId === null ? id : repId, clusterSize: csize };
 }
 
 export const insertGroupPost = insertPost;
@@ -156,7 +183,7 @@ export function groupStats() {
   return { total: r ? r.n : 0, groups: g };
 }
 
-const SELECT_COLS = 'p.id,p.channel,p.msg_id,p.date,p.ts,p.views,p.media,p.text,p.category,p.categories,p.tags,p.hashtags,p.value,p.content,p.url,p.links,p.domains,p.lp_title';
+const SELECT_COLS = 'p.id,p.channel,p.msg_id,p.date,p.ts,p.views,p.media,p.text,p.category,p.categories,p.tags,p.hashtags,p.value,p.content,p.url,p.links,p.domains,p.lp_title,p.rep_id,p.cluster_size';
 
 function rowToPost(r) {
   return {
@@ -167,11 +194,20 @@ function rowToPost(r) {
     links: (r.links || '').split(/\s+/).filter(Boolean),
     domains: (r.domains || '').split(/\s+/).filter(Boolean),
     lpTitle: r.lp_title || '',
+    repId: r.rep_id == null ? null : Number(r.rep_id),
+    clusterSize: r.cluster_size == null ? 1 : Number(r.cluster_size),
   };
 }
 
+// 同一事件的其他来源
+export function clusterMembers(repId) {
+  const d = open();
+  return d.prepare('SELECT ' + SELECT_COLS + ' FROM posts p WHERE p.rep_id = ? ORDER BY p.value DESC, p.ts DESC LIMIT 50')
+    .all(Number(repId)).map(rowToPost);
+}
+
 export function search(opts) {
-  const { q = '', category = '', tags = [], channel = '', from = '', to = '', sort = 'relevance', page = 1, size = 30, minValue = 0 } = opts;
+  const { q = '', category = '', tags = [], channel = '', from = '', to = '', sort = 'relevance', page = 1, size = 30, minValue = 0, collapse = true } = opts;
   const d = open();
   const where = [];
   const params = [];
@@ -182,6 +218,9 @@ export function search(opts) {
   if (to) { where.push('p.date <= ?'); params.push(to); }
   if (minValue) { where.push('p.value >= ?'); params.push(minValue); }
   for (const t of tags) { where.push("(',' || p.tags || ',') LIKE ?"); params.push('%,' + t + ',%'); }
+  // 同事件聚合：默认只显示每个簇的代表条目。is_rep 有索引，计数与分页都是索引扫描。
+  // （is_rep 尚未回填时默认值为 1，等价于不折叠，对老数据安全）
+  if (collapse) where.push('p.is_rep = 1');
 
   const qy = buildQuery(q);
   const terms = qy.terms;
@@ -220,9 +259,8 @@ export function search(opts) {
     const w = where.length ? ' WHERE ' + where.join(' AND ') : '';
     const orderSql = orderBySimple(sort);
     rows = d.prepare('SELECT ' + SELECT_COLS + ' FROM posts p' + w + ' ORDER BY ' + orderSql + ' LIMIT ? OFFSET ?').all(...params, size, offset);
-    const c = where.length === 0
-      ? d.prepare('SELECT COUNT(*) AS n FROM posts').get()
-      : d.prepare('SELECT COUNT(*) AS n FROM (SELECT 1 FROM posts p' + w + ' LIMIT 20000)').get(...params);
+    // 折叠条件命中 idx_posts_isrep；其余筛选条件下的总量按真实值统计
+    const c = d.prepare('SELECT COUNT(*) AS n FROM posts p' + w).get(...params);
     total = c ? c.n : 0;
   }
 

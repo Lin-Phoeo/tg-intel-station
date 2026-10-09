@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { search as searchApi, facets as facetsApi, getPost, related as relApi, getSettings } from './api';
+import { search as searchApi, facets as facetsApi, getPost, related as relApi, getSettings, getClusterMembers } from './api';
 import type { Post, Facets } from './api';
 import { PostCard } from './components/PostCard';
 import { Detail } from './components/Detail';
@@ -46,6 +46,8 @@ export default function App() {
   const [mode, setMode] = useState('');
   const [sel, setSel] = useState<Post | null>(null);
   const [rel, setRel] = useState<Post[]>([]);
+  const [cluster, setCluster] = useState<Post[]>([]);
+  const [collapse, setCollapse] = useState(() => localStorage.getItem('tg.collapse') !== '0');
   const [panel, setPanel] = useState<'chat' | 'detail'>('chat');
   const [rightOpen, setRightOpen] = useState(true);
   const [favIds, setFavIds] = useState<number[]>(() => { try { return JSON.parse(localStorage.getItem('tg.favs') || '[]'); } catch (e) { return []; } });
@@ -85,7 +87,8 @@ export default function App() {
   }, []);
 
   const from = useMemo(() => days ? new Date(Date.now() - days * 86400000).toISOString().slice(0, 10) : '', [days]);
-  const filters = useMemo(() => ({ q: dq, category: cat, channel, tags, sort, from }), [dq, cat, channel, tags, sort, from]);
+  const filters = useMemo(() => ({ q: dq, category: cat, channel, tags, sort, from, collapse }), [dq, cat, channel, tags, sort, from, collapse]);
+  useEffect(() => { localStorage.setItem('tg.collapse', collapse ? '1' : '0'); }, [collapse]);
 
   async function load(p: number) {
     setLoading(true);
@@ -132,7 +135,9 @@ export default function App() {
     setPanel('detail');
     setRightOpen(true);
     setRel([]);
+    setCluster([]);
     relApi(p.id).then(r => setRel(r.items || [])).catch(() => {});
+    if (p.clusterSize > 1) getClusterMembers(p.repId || p.id).then(r => setCluster(r.items || [])).catch(() => {});
   }
   async function openById(id: number) {
     try { const p = await getPost(id); if (p && (p as any).id) openPost(p); } catch (e) {}
@@ -238,6 +243,10 @@ export default function App() {
                 {channel && <span className="chip on" onClick={() => setChannel('')}>{'@' + channel + ' ✕'}</span>}
                 {tags.map(t => <span key={t} className="chip on" onClick={() => setTags(prev => prev.filter(x => x !== t))}>{t + ' ✕'}</span>)}
                 <button className="btn ghost" style={{ padding: '2px 8px', fontSize: 12 }} onClick={() => { setCat(''); setChannel(''); setTags([]); setQ(''); }}>清空筛选</button>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--fg-dim)', cursor: 'pointer' }} title="同一事件被多个来源发布时只显示一条">
+                  <input type="checkbox" checked={collapse} onChange={e => setCollapse(e.target.checked)} style={{ width: 'auto', margin: 0 }} />
+                  合并重复来源
+                </label>
               </span>
             )}
           </div>
@@ -273,7 +282,7 @@ export default function App() {
             {panel === 'chat'
               ? <ChatPanel filters={filters} pendingPost={askPost} onConsumePending={() => setAskPost(null)} onOpenPost={openById} />
               : (sel
-                ? <div style={{ height: '100%', overflowY: 'auto' }}><Detail post={sel} rel={rel} fav={favIds.includes(sel.id)} onFav={toggleFav} onOpen={openPost} onAsk={ask} /></div>
+                ? <div style={{ height: '100%', overflowY: 'auto' }}><Detail post={sel} rel={rel} cluster={cluster} fav={favIds.includes(sel.id)} onFav={toggleFav} onOpen={openPost} onAsk={ask} /></div>
                 : <div style={{ padding: 30, color: 'var(--fg-mute)', textAlign: 'center' }}>从左侧点开任意一条查看详情</div>)}
           </div>
         </aside>
