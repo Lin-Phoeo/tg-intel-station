@@ -36,12 +36,17 @@ export function AiClassifyPanel() {
   const [preview, setPreview] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: string; text: string } | null>(null);
+  const [profileId, setProfileId] = useState('');
   const timer = useRef<any>(null);
 
   const cur = SCOPES.find(s => s.v === scope) || SCOPES[0];
 
   async function refresh() {
-    try { setSt(await (await fetch('/api/ai-classify/status')).json()); } catch (e) {}
+    try {
+      const j = await (await fetch('/api/ai-classify/status')).json();
+      setSt(j);
+      setProfileId(prev => prev || j.profileId || '');
+    } catch (e) {}
   }
   useEffect(() => {
     refresh();
@@ -85,10 +90,16 @@ export function AiClassifyPanel() {
   const total = st ? st.total : 0;
   const pct = total ? Math.min(100, (done / total) * 100) : 0;
   const rate = st ? Number(st.rate || 0) : 0;
-  // 13 秒/条是实测值（受模型与中转站速度制约）。用来给用户一个量级预期，
-  // 比「不显示」或者「乐观估计」都更有用 —— 免得点下去才发现要跑一整天。
-  const SEC_PER_ITEM = 13;
+  // 估时用于给用户一个量级预期。
+  // 瓶颈是**每次调用的固定延迟**（实测最简请求也要 70 秒以上），不是输出长度 ——
+  // 所以批量越大摊得越薄。每批 20 条时实测约 1.8 秒/条；这里按 3 秒/条保守估。
+  const SEC_PER_ITEM = rate > 0 ? 1 / rate : 3;
   const estSec = cand ? cand * SEC_PER_ITEM : 0;
+
+  async function saveProfile(id: string) {
+    await fetch('/api/ai-classify/profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id }) });
+    refresh();
+  }
 
   return (
     <div>
@@ -96,6 +107,20 @@ export function AiClassifyPanel() {
       <div style={{ fontSize: 'var(--fs-meta)', color: 'var(--fg-dim)', lineHeight: 1.75, marginBottom: 14 }}>
         规则分类器是关键词打分，多类目得分接近时会选错；价值分也只是「类目基础分 + 标签加成 + 浏览量」的粗估。
         交给模型逐条判断会准得多 —— 实测它能把规则漏进「其他」的实用帖捞出来，同时把纯资讯正确压低。
+      </div>
+
+      <label style={{ fontSize: 'var(--fs-meta)', color: 'var(--fg-mute)' }}>用哪个模型</label>
+      <select value={profileId} onChange={e => { setProfileId(e.target.value); saveProfile(e.target.value); }}
+        disabled={running} style={{ width: '100%', margin: '4px 0 6px' }}>
+        <option value="">跟随当前对话模型</option>
+        {(st && st.profiles || []).filter((p: any) => p.hasKey).map((p: any) => (
+          <option key={p.id} value={p.id}>{p.name} · {p.model}</option>
+        ))}
+      </select>
+      <div style={{ fontSize: 'var(--fs-micro)', color: 'var(--fg-mute)', marginBottom: 12, lineHeight: 1.6 }}>
+        分类只是做简单判断，<b style={{ color: 'var(--fg-dim)' }}>用旗舰推理模型是浪费</b> ——
+        实测最简请求也要 70 秒以上，瓶颈在每次调用的固定延迟。
+        换一个快的小模型（比如 glm-4-flash），速度能差几十倍。
       </div>
 
       <label style={{ fontSize: 'var(--fs-meta)', color: 'var(--fg-mute)' }}>处理范围</label>

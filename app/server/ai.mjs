@@ -613,11 +613,18 @@ export async function streamLLM(messages, onDelta) {
 }
 
 // 非流式调用，供机器人等场景使用
-export async function completeLLM(messages) {
+// profileId 可选：分类这类批量任务可以用一个更快的模型，
+// 没必要跟对话共用同一个（实测旗舰模型单次调用要 70 秒以上，
+// 而分类只需要模型做简单判断，用旗舰是浪费）。
+export async function completeLLM(messages, profileId) {
   const s = loadSettings();
-  const p = activeProfile();
+  let p = activeProfile();
+  if (profileId) {
+    const want = (s.profiles || []).find(x => x.id === profileId);
+    if (want && want.baseUrl && want.apiKey) p = want;
+  }
   if (!p || !p.baseUrl || !p.apiKey) throw new Error('NO_KEY');
-  const attempts = llmAttempts(p, messages, { stream: false, temperature: s.temperature == null ? 0.3 : s.temperature });
+  const attempts = llmAttempts(p, messages, { stream: false, temperature: 0, maxTokens: 1024 });
   let j = null;
   let used = p;
   let lastHtml = false;

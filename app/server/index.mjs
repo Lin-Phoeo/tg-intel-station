@@ -104,7 +104,10 @@ async function api(req, res, pathname, query) {
   if (mClu) return send(res, 200, { items: store.clusterMembers(mClu[1]) });
 
   // ---------- AI 辅助分类 ----------
-  if (pathname === '/api/ai-classify/status') return send(res, 200, aiClassify.getStatus());
+  if (pathname === '/api/ai-classify/status') return send(res, 200, Object.assign({}, aiClassify.getStatus(), {
+    profileId: aiClassify.classifyProfileId(),
+    profiles: (ai.loadSettings().profiles || []).map(p => ({ id: p.id, name: p.name, model: p.model, hasKey: !!p.apiKey })),
+  }));
   if (pathname === '/api/ai-classify/preview') {
     const q = query || {};
     const scope = {
@@ -127,6 +130,11 @@ async function api(req, res, pathname, query) {
     return send(res, 200, aiClassify.startClassify({ scope: scope, limit: Number(body.limit || 0) }));
   }
   if (pathname === '/api/ai-classify/stop' && req.method === 'POST') return send(res, 200, { ok: aiClassify.requestStop() });
+  if (pathname === '/api/ai-classify/profile' && req.method === 'POST') {
+    const body = await readBody(req).catch(() => ({}));
+    store.setState('classifyProfileId', String(body.id || ''));
+    return send(res, 200, { ok: true, id: String(body.id || '') });
+  }
   if (pathname === '/api/ai-classify/rollback' && req.method === 'POST') return send(res, 200, { ok: true, restored: store.rollbackAiLabels() });
   if (pathname === '/api/ai-classify/clear' && req.method === 'POST') return send(res, 200, { ok: true, removed: store.clearAiLabels() });
   // ---------- 检索式保存 ----------

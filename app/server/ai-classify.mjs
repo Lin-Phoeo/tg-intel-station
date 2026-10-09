@@ -9,7 +9,10 @@ import * as ai from './ai.mjs';
 import { CATS } from '../../core/classify.mjs';
 
 const CAT_KEYS = CATS.map(c => c.key).concat(['其他']);
-const BATCH = 10;          // 每次请求交给模型多少条（太少浪费、太多容易漏行）
+// 每批交给模型多少条。
+// 单次调用的延迟基本固定（实测最简请求也要 70 秒以上），
+// 所以批量越大、摊到每条上的时间越少 —— 但太大模型容易漏行，20 是稳妥值。
+const BATCH = 20;
 
 let state = {
   running: false, done: 0, total: 0, failed: 0, skipped: 0,
@@ -101,6 +104,11 @@ function parseAnswer(text, posts) {
   return out;
 }
 
+// 分类专用的服务商。没单独指定就沿用当前对话的服务商。
+export function classifyProfileId() {
+  try { return store.getState('classifyProfileId', '') || ''; } catch (e) { return ''; }
+}
+
 export function requestStop() { state.stop = true; return true; }
 
 export async function runClassify(opts) {
@@ -135,7 +143,7 @@ export async function runClassify(opts) {
         answer = await ai.completeLLM([
           { role: 'system', content: '你只输出规定格式的行，不输出任何其它内容。' },
           { role: 'user', content: buildPrompt(posts) },
-        ]);
+        ], (o && o.profileId) || classifyProfileId());
       } catch (e) {
         state.failed += posts.length;
         state.error = String(e.message || e).slice(0, 200);
