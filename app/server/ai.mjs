@@ -76,6 +76,11 @@ export function publicSettings() {
     activeId: s.activeId,
     temperature: s.temperature,
     topK: s.topK,
+    // 向量化可以单独指向别的服务商（例如对话用 DeepSeek、向量用硅基流动的免费 bge-m3）
+    embedBaseUrl: s.embedBaseUrl || '',
+    embedModel: s.embedModel || '',
+    hasEmbedKey: !!s.embedApiKey,
+    embedKeyHint: s.embedApiKey ? s.embedApiKey.slice(0, 4) + '****' + s.embedApiKey.slice(-4) : '',
     profiles: s.profiles.map(p => ({
       id: p.id, name: p.name, baseUrl: p.baseUrl, model: p.model,
       hasKey: !!p.apiKey, keyHint: p.apiKey ? p.apiKey.slice(0, 4) + '****' + p.apiKey.slice(-4) : '',
