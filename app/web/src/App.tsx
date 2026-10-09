@@ -69,6 +69,13 @@ export default function App() {
   const [semanticNote, setSemanticNote] = useState('');
   const [useRerank, setUseRerank] = useState(() => localStorage.getItem('tg.rerank') !== '0');
   const [showFilters, setShowFilters] = useState(false);
+  const [winW, setWinW] = useState(() => (typeof window === 'undefined' ? 1600 : window.innerWidth));
+  useEffect(() => {
+    const onResize = () => setWinW(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  const narrow = winW < 1180;   // 窄窗口：右栏改为覆盖式抽屉
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [cursor, setCursor] = useState(0);           // 键盘选中的卡片下标
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -284,6 +291,9 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [paletteOpen, cursor, shown, favIds]);
 
+  // 窄窗口下右栏改为覆盖式抽屉，默认收起，避免遮挡内容
+  useEffect(() => { if (narrow) setRightOpen(false); }, [narrow]);
+
   // 键盘移动时把选中卡片滚进视野
   useEffect(() => {
     const host = scrollRef.current;
@@ -455,7 +465,10 @@ export default function App() {
 
       {/* ---------- right panel ---------- */}
       {rightOpen && (
-        <aside className="surface" style={{ width: 440, flexShrink: 0, borderLeft: '1px solid var(--border-soft)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <aside className={'surface' + (narrow ? ' panel-overlay' : '')}
+          style={narrow
+            ? { position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(440px, 92vw)', zIndex: 60, borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '-8px 0 32px -12px rgba(0,0,0,.7)' }
+            : { width: 440, flexShrink: 0, borderLeft: '1px solid var(--border-soft)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '8px 10px', borderBottom: '1px solid var(--border-soft)' }}>
             <button className={'btn ghost' + (panel === 'chat' ? '' : '')} style={{ background: panel === 'chat' ? 'var(--bg-3)' : 'transparent', color: panel === 'chat' ? 'var(--fg)' : 'var(--fg-dim)' }} onClick={() => setPanel('chat')}><Sparkles size={14} strokeWidth={1.75} /> AI 助手</button>
             <button className="btn ghost" style={{ background: panel === 'detail' ? 'var(--bg-3)' : 'transparent', color: panel === 'detail' ? 'var(--fg)' : 'var(--fg-dim)' }} onClick={() => setPanel('detail')} disabled={!sel}><FileText size={14} strokeWidth={1.75} /> 详情</button>
@@ -475,6 +488,10 @@ export default function App() {
       <SettingsModal open={settingsOpen} onClose={() => { setSettingsOpen(false); refreshProviders(); }} onActiveChange={refreshProviders} initialTab={settingsTab} />
       <AddSourceModal open={addSourceOpen} onClose={() => setAddSourceOpen(false)} onImported={() => { facetsApi().then(setFac); load(1); }} />
       <SubscriptionsModal open={subsOpen} onClose={() => { setSubsOpen(false); runSubCheck(); }} onPick={kw => { setView('feed'); setQ(kw); setDq(kw); setSinceFilter(0); }} />
+      {narrow && rightOpen && (
+        <div onClick={() => setRightOpen(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 55 }} />
+      )}
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
     </div>
   );
