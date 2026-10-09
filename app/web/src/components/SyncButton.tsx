@@ -9,6 +9,7 @@ export function SyncButton({ onDone }: { onDone?: () => void }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const timer = useRef<any>(null);
+  const startRef = useRef<() => void>(() => {});
 
   async function poll() {
     try {
@@ -30,6 +31,13 @@ export function SyncButton({ onDone }: { onDone?: () => void }) {
     return () => { if (timer.current) clearInterval(timer.current); };
   }, []);
 
+  // 供 Ctrl+K 命令面板调用
+  useEffect(() => {
+    const h = () => { startRef.current(); };
+    window.addEventListener('tg:sync', h);
+    return () => window.removeEventListener('tg:sync', h);
+  }, []);
+
   async function start() {
     setMsg('');
     setBusy(true);
@@ -39,6 +47,8 @@ export function SyncButton({ onDone }: { onDone?: () => void }) {
     timer.current = setInterval(poll, 1500);
     poll();
   }
+
+  startRef.current = start;
 
   const running = busy || (st && st.running);
   const total = st && st.total ? st.total : 0;

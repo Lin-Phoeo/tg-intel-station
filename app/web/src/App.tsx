@@ -11,6 +11,8 @@ import { SettingsModal } from './components/SettingsModal';
 import { AddSourceModal } from './components/AddSourceModal';
 import { SyncButton } from './components/SyncButton';
 import { SubscriptionsModal } from './components/SubscriptionsModal';
+import { CommandPalette } from './components/CommandPalette';
+import type { Cmd } from './components/CommandPalette';
 import { catColor, fmtNum } from './lib/util';
 
 const PAGE = 40;
@@ -59,6 +61,10 @@ export default function App() {
   const [newSince, setNewSince] = useState(0);       // 上次访问以来的新内容条数
   const [sinceFilter, setSinceFilter] = useState(0); // 当前是否只看新内容
   const [topKw, setTopKw] = useState<string[]>([]);  // 订阅命中提醒
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [cursor, setCursor] = useState(0);           // 键盘选中的卡片下标
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollPos = useRef<Record<string, number>>({});
   const [view, setView] = useState<'feed' | 'favs'>('feed');
   const [favPosts, setFavPosts] = useState<Post[]>([]);
   const [askPost, setAskPost] = useState<Post | null>(null);
@@ -204,6 +210,66 @@ export default function App() {
   const terms = useMemo(() => dq.split(/\s+/).filter(Boolean), [dq]);
   const shown = view === 'favs' ? favPosts : items;
 
+  // ---------- 命令面板 ----------
+  const commands = useMemo<Cmd[]>(() => {
+    const out: Cmd[] = [];
+    const CATS = ['羊毛优惠', '项目副业', '实用工具', '开源项目', 'AI与科技', '服务器网络', '账号会员', '学习资源', '数码硬件', '资讯热点'];
+    for (const c of CATS) out.push({ id: 'cat:' + c, label: '分类：' + c, group: '筛选', run: () => { setView('feed'); setCat(cat === c ? '' : c); } });
+    for (const s of SORTS) out.push({ id: 'sort:' + s.v, label: '排序：' + s.label, group: '排序', run: () => setSort(s.v) });
+    for (const d of DAYS) out.push({ id: 'day:' + d.v, label: '时间：' + d.label, group: '筛选', run: () => setDays(d.v) });
+    if (fac) for (const ch of fac.channels.slice(0, 30)) out.push({ id: 'ch:' + ch.k, label: '只看频道：' + ch.k, group: '频道', hint: fmtNum(ch.n), run: () => { setView('feed'); setChannel(ch.k); } });
+    out.push({ id: 'act:favs', label: '打开：我的收藏', group: '操作', run: showFavs });
+    out.push({ id: 'act:feed', label: '打开：全部信息流', group: '操作', run: () => { setView('feed'); setCat(''); setChannel(''); setTags([]); setQ(''); } });
+    out.push({ id: 'act:subs', label: '打开：关键词订阅', group: '操作', run: () => setSubsOpen(true) });
+    out.push({ id: 'act:src', label: '打开：按链接抓取', group: '操作', run: () => setAddSourceOpen(true) });
+    out.push({ id: 'act:ai', label: '打开：AI 情报助手', group: '操作', run: () => { setPanel('chat'); setRightOpen(true); } });
+    out.push({ id: 'act:settings', label: '打开：设置', group: '操作', run: () => setSettingsOpen(true) });
+    out.push({ id: 'act:sync', label: '执行：一键补齐（增量同步全部来源）', group: '操作', run: () => { window.dispatchEvent(new CustomEvent('tg:sync')); } });
+    out.push({ id: 'act:collapse', label: '切换：合并重复来源（当前 ' + (collapse ? '开' : '关') + '）', group: '操作', run: () => setCollapse(v => !v) });
+    out.push({ id: 'act:theme', label: '切换：' + (theme === 'dark' ? '浅色' : '深色') + '主题', group: '操作', run: () => setTheme(theme === 'dark' ? 'light' : 'dark') });
+    out.push({ id: 'act:size', label: '切换：卡片密度（当前 ' + size + '）', group: '操作', run: () => setSize(size === 's' ? 'm' : size === 'm' ? 'l' : 's') });
+    if (dq.trim()) out.push({ id: 'search:' + dq, label: '搜索情报：' + dq, group: '搜索', run: () => { setView('feed'); } });
+    return out;
+  }, [fac, cat, collapse, theme, size, dq, sort, from]);
+
+  // ---------- 全局快捷键 ----------
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const t = e.target as HTMLElement | null;
+      const typing = !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setPaletteOpen(o => !o); return; }
+      if (paletteOpen) return;
+      if (typing) { if (e.key === 'Escape') t && t.blur(); return; }
+      if (e.key === '/') { e.preventDefault(); if (searchRef.current) searchRef.current.focus(); return; }
+      if (e.key === 'j' || e.key === 'ArrowDown') { e.preventDefault(); setCursor(c => Math.min(c + 1, Math.max(0, shown.length - 1))); return; }
+      if (e.key === 'k' || e.key === 'ArrowUp') { e.preventDefault(); setCursor(c => Math.max(c - 1, 0)); return; }
+      if (e.key === 'Enter') { const p = shown[cursor]; if (p) { e.preventDefault(); openPost(p); } return; }
+      if (e.key === 's') { const p = shown[cursor]; if (p) { e.preventDefault(); toggleFav(p); } return; }
+      if (e.key === '?') { e.preventDefault(); setPaletteOpen(true); return; }
+      if (e.key === 'Escape') { setPaletteOpen(false); setRightOpen(false); return; }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [paletteOpen, cursor, shown, favIds]);
+
+  // 键盘移动时把选中卡片滚进视野
+  useEffect(() => {
+    const host = scrollRef.current;
+    if (!host) return;
+    const el = host.querySelector('[data-idx="' + cursor + '"]');
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+  }, [cursor]);
+
+  // 切换视图：光标复位，并恢复该视图上次的滚动位置
+  useEffect(() => {
+    setCursor(0);
+    const host = scrollRef.current;
+    if (!host) return;
+    const want = scrollPos.current[view] || 0;
+    const id = requestAnimationFrame(() => { host.scrollTop = want; });
+    return () => cancelAnimationFrame(id);
+  }, [view]);
+
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--bg)' }}>
       {/* ---------- sidebar ---------- */}
@@ -313,12 +379,17 @@ export default function App() {
           </div>
         </div>
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 18px 60px' }}>
+        <div ref={scrollRef} onScroll={e => { scrollPos.current[view] = (e.target as HTMLElement).scrollTop; }}
+          style={{ flex: 1, overflowY: 'auto', padding: '16px 18px 60px' }}>
           {view === 'favs' && favPosts.length === 0 && (
             <div style={{ textAlign: 'center', color: 'var(--fg-mute)', paddingTop: 80 }}>还没有收藏。点击任意条目右上角的 ☆ 收藏。</div>
           )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 900, margin: '0 auto' }}>
-            {shown.map(p => <PostCard key={p.id} post={p} active={sel?.id === p.id} terms={terms} onOpen={openPost} />)}
+            {shown.map((p, i) => (
+            <div key={p.id} data-idx={i} ref={i === cursor ? (el => { if (el && scrollRef.current && scrollRef.current.contains(el)) {} }) : undefined}>
+              <PostCard post={p} active={sel?.id === p.id || i === cursor} terms={terms} onOpen={p2 => { setCursor(i); openPost(p2); }} />
+            </div>
+          ))}
           </div>
           {view === 'feed' && loading && page === 1 && <div style={{ textAlign: 'center', color: 'var(--fg-mute)', padding: 40 }}>正在检索…</div>}
           {view === 'feed' && !loading && items.length === 0 && <div style={{ textAlign: 'center', color: 'var(--fg-mute)', padding: 70 }}>没有匹配的结果，试试换个关键词或清空筛选。</div>}
@@ -352,6 +423,7 @@ export default function App() {
       <SettingsModal open={settingsOpen} onClose={() => { setSettingsOpen(false); refreshProviders(); }} onActiveChange={refreshProviders} initialTab={settingsTab} />
       <AddSourceModal open={addSourceOpen} onClose={() => setAddSourceOpen(false)} onImported={() => { facetsApi().then(setFac); load(1); }} />
       <SubscriptionsModal open={subsOpen} onClose={() => { setSubsOpen(false); runSubCheck(); }} onPick={kw => { setView('feed'); setQ(kw); setDq(kw); setSinceFilter(0); }} />
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
     </div>
   );
 }
