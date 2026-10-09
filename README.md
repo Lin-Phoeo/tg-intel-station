@@ -81,6 +81,20 @@ t.me/s/<频道>  ──scrape.mjs──▶  data/raw/<频道>/seg_*.jsonl
 
 内置预设：DeepSeek、硅基流动、智谱 GLM、OpenAI、Moonshot、阿里通义、火山方舟、OpenRouter、**自定义中转**（任意 OpenAI 兼容接口，支持附加自定义请求头）。
 
+### 模型列表自动获取
+
+填好 Base URL 和 API Key 后，点模型名右侧的 **获取模型**，会自动调用服务商的模型列表接口，把可用模型列出来供选择（带搜索过滤，OpenRouter 这类聚合站有几百个模型也能秒筛）。
+
+不同厂商的接口路径和返回格式差异很大，这里参考开源项目 **farion1231/cc-switch** 的做法做了三层兼容：
+
+- **候选地址按序尝试**：`{base}/models` → `{base}/v1/models` → `{base}/api/v1/models`，并自动剥离 `/anthropic`、`/api/coding` 等兼容子路径后重试
+- **返回格式兼容**：OpenAI 的 `data[].id`、智谱的 `models[].slug`、Anthropic 的 `data[].id` 都能解析
+- **错误区分**：401/403 提示 Key 无效；全部候选 404 则提示该服务商不开放模型列表 —— 此时手动填模型名即可，也可以单独填「模型接口地址」精确指定
+
+另外支持切换 **鉴权方式**（`Authorization: Bearer` / `x-api-key` / `x-goog-api-key`），自建中转站可以自由适配。
+
+![获取模型](app/预览-模型获取.png)
+
 密钥只写入本机 `app/data/settings.json`，已在 `.gitignore` 中排除。
 
 ![AI 服务商设置](app/预览-AI服务商设置.png)

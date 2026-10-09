@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { getSettings, saveSettings, testSettings } from '../api';
+import { ModelPicker } from './ModelPicker';
 
-type Profile = { id: string; name: string; baseUrl: string; model: string; apiKey?: string; hasKey?: boolean; keyHint?: string; headers?: string };
-const blank = (): Profile => ({ id: 'p' + Date.now().toString(36), name: '新服务商', baseUrl: '', model: '', apiKey: '', headers: '' });
+type Profile = { id: string; name: string; baseUrl: string; model: string; apiKey?: string; hasKey?: boolean; keyHint?: string; headers?: string; apiFormat?: string; modelsUrl?: string };
+const blank = (): Profile => ({ id: 'p' + Date.now().toString(36), name: '新服务商', baseUrl: '', model: '', apiKey: '', headers: '', apiFormat: 'openai', modelsUrl: '' });
 
 export function SettingsModal({ open, onClose, onActiveChange }: { open: boolean; onClose: () => void; onActiveChange?: (name: string) => void }) {
   const [presets, setPresets] = useState<any[]>([]);
@@ -32,7 +33,7 @@ export function SettingsModal({ open, onClose, onActiveChange }: { open: boolean
 
   function addFromPreset(pid: string) {
     const pre = presets.find(x => x.id === pid);
-    const p: Profile = { id: 'p' + Date.now().toString(36), name: (pre && pre.label) || '自定义中转', baseUrl: (pre && pre.baseUrl) || '', model: (pre && pre.model) || '', apiKey: '', headers: '' };
+    const p: Profile = { id: 'p' + Date.now().toString(36), name: (pre && pre.label) || '自定义中转', baseUrl: (pre && pre.baseUrl) || '', model: (pre && pre.model) || '', apiKey: '', headers: '', apiFormat: (pre && pre.apiFormat) || 'openai', modelsUrl: '' };
     setProfiles(prev => prev.concat([p]));
     setEditing(p.id);
     setMsg(null);
@@ -98,7 +99,7 @@ export function SettingsModal({ open, onClose, onActiveChange }: { open: boolean
                   <input type="radio" checked={on} onChange={() => activate(p.id)} style={{ accentColor: 'var(--accent)' }} />
                   <span style={{ fontWeight: 620 }}>{p.name}</span>
                   {p.hasKey ? <span className="badge" style={{ background: 'color-mix(in srgb, var(--green) 16%, transparent)', color: 'var(--green)' }}>已配置</span> : <span className="badge" style={{ background: 'var(--bg-3)', color: 'var(--fg-mute)' }}>未配置密钥</span>}
-                  <span style={{ fontSize: 12, color: 'var(--fg-mute)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.baseUrl || '（未填写 Base URL）'}</span>
+                  <span style={{ fontSize: 12, color: 'var(--fg-mute)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.model ? p.model + '  ·  ' : ''}{(p.baseUrl || '（未填写 Base URL）')}</span>
                   <button className="btn ghost" style={{ padding: '2px 9px', fontSize: 12 }} onClick={() => setEditing(editing === p.id ? null : p.id)}>{editing === p.id ? '收起' : '编辑'}</button>
                   <button className="btn ghost" style={{ padding: '2px 9px', fontSize: 12, color: 'var(--rose)' }} onClick={() => del(p.id)}>删除</button>
                 </div>
@@ -109,8 +110,27 @@ export function SettingsModal({ open, onClose, onActiveChange }: { open: boolean
                     <input value={p.name} onChange={e => upd(p.id, 'name', e.target.value)} style={box} />
                     <label style={{ fontSize: 12, color: 'var(--fg-mute)' }}>Base URL（OpenAI 兼容，通常以 /v1 结尾）</label>
                     <input value={p.baseUrl} onChange={e => upd(p.id, 'baseUrl', e.target.value)} placeholder="https://api.deepseek.com/v1 或 https://你的中转站/v1" style={box} />
-                    <label style={{ fontSize: 12, color: 'var(--fg-mute)' }}>模型名</label>
-                    <input value={p.model} onChange={e => upd(p.id, 'model', e.target.value)} placeholder="deepseek-chat" style={box} />
+                    <label style={{ fontSize: 12, color: 'var(--fg-mute)' }}>模型名 <span style={{ opacity: .8 }}>· 点「获取模型」可从服务商拉取列表后选择</span></label>
+                    <div style={{ margin: '4px 0 10px' }}>
+                      <ModelPicker
+                        value={p.model}
+                        onChange={v => upd(p.id, 'model', v)}
+                        baseUrl={p.baseUrl}
+                        apiKey={p.apiKey}
+                        apiFormat={p.apiFormat || 'openai'}
+                        modelsUrl={p.modelsUrl || ''}
+                        headers={p.headers || ''}
+                        hasKey={p.hasKey}
+                      />
+                    </div>
+                    <label style={{ fontSize: 12, color: 'var(--fg-mute)' }}>模型接口地址（可选，自动识别失败时填）</label>
+                    <input value={p.modelsUrl || ''} onChange={e => upd(p.id, 'modelsUrl', e.target.value)} placeholder="https://xxx.com/v1/models" style={box} />
+                    <label style={{ fontSize: 12, color: 'var(--fg-mute)' }}>鉴权方式</label>
+                    <select value={p.apiFormat || 'openai'} onChange={e => upd(p.id, 'apiFormat', e.target.value)} style={box}>
+                      <option value="openai">Authorization: Bearer（绝大多数）</option>
+                      <option value="anthropic">x-api-key（Anthropic 风格中转）</option>
+                      <option value="google">x-goog-api-key（Google 风格）</option>
+                    </select>
                     <label style={{ fontSize: 12, color: 'var(--fg-mute)' }}>API Key {p.hasKey && <span style={{ color: 'var(--green)' }}>· 已保存 {p.keyHint}（留空则不修改）</span>}</label>
                     <input type="password" value={p.apiKey || ''} onChange={e => upd(p.id, 'apiKey', e.target.value)} placeholder={p.hasKey ? '留空保持不变' : 'sk-...'} style={box} />
                     <label style={{ fontSize: 12, color: 'var(--fg-mute)' }}>自定义请求头（可选，JSON，用于需要额外头的聚合站/中转）</label>

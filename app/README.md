@@ -24,6 +24,9 @@
 顶栏的下拉框可以随时切换服务商。密钥只保存在本机 `app/data/settings.json`，不会外传。
 
 内置预设：DeepSeek、硅基流动、智谱 GLM、OpenAI、Moonshot、阿里通义、火山方舟、OpenRouter、自定义中转。
+
+填好 Base URL 和 API Key 后，点模型名右侧的 **获取模型** 会自动拉取该服务商的可用模型列表（带搜索过滤），直接选即可，不用手敲模型名。
+接口路径与返回格式自动兼容（OpenAI `data[].id` / 智谱 `models[].slug` / Anthropic `data[].id`），并自动剥离 `/anthropic` 等兼容子路径重试；401 提示 Key 无效，全部 404 则提示手动填写。鉴权方式可切换 Bearer / x-api-key / x-goog-api-key。
 「自定义中转」支持填写任意 OpenAI 兼容 Base URL，并可附加自定义请求头（JSON）。
 
 ## 目录结构

@@ -50,6 +50,14 @@ export async function saveSettings(patch: any): Promise<{ settings: any; presets
   const r = await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
   return r.json();
 }
+export type FetchedModel = { id: string; ownedBy: string | null };
+export type ModelFetchResult = { ok: boolean; models?: FetchedModel[]; error?: string; kind?: string; tried?: string[]; url?: string; count?: number };
+
+export async function fetchModelsForConfig(payload: any): Promise<ModelFetchResult> {
+  const r = await fetch('/api/settings/models', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  return r.json();
+}
+
 export async function testSettings(payload: any): Promise<{ ok: boolean; error?: string; result?: any }> {
   const r = await fetch('/api/settings/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
   return r.json();

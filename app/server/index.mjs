@@ -92,6 +92,19 @@ async function api(req, res, pathname, query) {
     return send(res, 200, { ok: true, active: a ? a.name : '', settings: ai.publicSettings() });
   }
 
+  if (pathname === '/api/settings/models' && req.method === 'POST') {
+    const body = await readBody(req);
+    const active = ai.activeProfile() || {};
+    const r = await ai.fetchModels({
+      baseUrl: body.baseUrl || active.baseUrl || '',
+      apiKey: body.apiKey || active.apiKey || '',
+      modelsUrl: body.modelsUrl || active.modelsUrl || '',
+      apiFormat: body.apiFormat || active.apiFormat || 'openai',
+      headers: body.headers != null ? body.headers : (active.headers || ''),
+    });
+    return send(res, 200, r);
+  }
+
   if (pathname === '/api/settings/test' && req.method === 'POST') {
     const body = await readBody(req);
     try {

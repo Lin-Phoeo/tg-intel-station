@@ -19,10 +19,11 @@ export const PRESETS = [
   { id: 'relay', label: '自定义中转 / 自建站', baseUrl: '', model: '', note: '任何 OpenAI 兼容接口，可加自定义请求头' },
 ];
 
+const PROFILE_SHAPE = { id: '', name: '', baseUrl: '', model: '', apiKey: '', headers: '', apiFormat: 'openai', modelsUrl: '' };
 const DEFAULT_PROFILES = [
-  { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', apiKey: '', headers: '' },
-  { id: 'siliconflow', name: '硅基流动', baseUrl: 'https://api.siliconflow.cn/v1', model: 'deepseek-ai/DeepSeek-V3', apiKey: '', headers: '' },
-  { id: 'zhipu', name: '智谱 GLM', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash', apiKey: '', headers: '' },
+  Object.assign({}, PROFILE_SHAPE, { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' }),
+  Object.assign({}, PROFILE_SHAPE, { id: 'siliconflow', name: '硅基流动', baseUrl: 'https://api.siliconflow.cn/v1', model: 'deepseek-ai/DeepSeek-V3' }),
+  Object.assign({}, PROFILE_SHAPE, { id: 'zhipu', name: '智谱 GLM', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash' }),
 ];
 const DEFAULT_SETTINGS = { activeId: 'deepseek', profiles: DEFAULT_PROFILES, temperature: 0.3, topK: 14 };
 
@@ -43,7 +44,7 @@ export function loadSettings() {
     const s = Object.assign({}, DEFAULT_SETTINGS, m);
     if (!Array.isArray(s.profiles) || !s.profiles.length) s.profiles = JSON.parse(JSON.stringify(DEFAULT_PROFILES));
     if (!s.profiles.some(p => p.id === s.activeId)) s.activeId = s.profiles[0].id;
-    s.profiles = s.profiles.map(p => Object.assign({ id: '', name: '', baseUrl: '', model: '', apiKey: '', headers: '' }, p));
+    s.profiles = s.profiles.map(p => Object.assign({}, PROFILE_SHAPE, p));
     return s;
   } catch (e) { return JSON.parse(JSON.stringify(DEFAULT_SETTINGS)); }
 }
@@ -54,7 +55,7 @@ export function saveSettings(patch) {
   if (patch && Array.isArray(patch.profiles)) {
     next.profiles = patch.profiles.map(p => {
       const old = cur.profiles.find(c => c.id === p.id) || {};
-      const merged = Object.assign({ id: '', name: '', baseUrl: '', model: '', apiKey: '', headers: '' }, old, p);
+      const merged = Object.assign({}, PROFILE_SHAPE, old, p);
       if (!p.apiKey) merged.apiKey = old.apiKey || '';
       return merged;
     });
@@ -78,17 +79,129 @@ export function publicSettings() {
     profiles: s.profiles.map(p => ({
       id: p.id, name: p.name, baseUrl: p.baseUrl, model: p.model,
       hasKey: !!p.apiKey, keyHint: p.apiKey ? p.apiKey.slice(0, 4) + '****' + p.apiKey.slice(-4) : '',
-      headers: p.headers || '',
+      headers: p.headers || '', apiFormat: p.apiFormat || 'openai', modelsUrl: p.modelsUrl || '',
     })),
   };
 }
 
 function headersFor(profile) {
-  const h = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (profile.apiKey || '') };
+  const h = { 'Content-Type': 'application/json' };
+  const key = profile.apiKey || '';
+  const fmt = profile.apiFormat || 'openai';
+  if (key) {
+    if (fmt === 'anthropic') h['x-api-key'] = key;
+    else if (fmt === 'google') h['x-goog-api-key'] = key;
+    else h['Authorization'] = 'Bearer ' + key;
+  }
   if (profile.headers) {
     try { const extra = JSON.parse(profile.headers); for (const k of Object.keys(extra)) h[k] = String(extra[k]); } catch (e) {}
   }
   return h;
+}
+
+// ---------------------------------------------------------------------------
+// 模型列表自动获取
+// 思路参考开源项目 farion1231/cc-switch（MIT）：候选地址按序尝试 +
+// 剥离 Anthropic 兼容子路径兜底 + 兼容多种响应结构 + 区分 401 与 404。
+// ---------------------------------------------------------------------------
+const KNOWN_COMPAT_SUFFIXES = [
+  '/api/claudecode', '/api/anthropic', '/apps/anthropic', '/api/coding',
+  '/claudecode', '/anthropic', '/step_plan', '/coding', '/claude',
+];
+
+export function buildModelsUrlCandidates(baseUrl, modelsUrl) {
+  const out = [];
+  const seen = new Set();
+  const push = (u) => { const s = String(u || '').trim().replace(/\/+$/, ''); if (s && !seen.has(s) && /^https?:/i.test(s)) { seen.add(s); out.push(s); } };
+  const base = String(baseUrl || '').trim().replace(/\/+$/, '');
+  if (modelsUrl && String(modelsUrl).trim()) { push(modelsUrl); return out; }
+  if (!base) return out;
+  if (/\/models$/i.test(base)) { push(base); return out; }
+  push(base + '/models');
+  if (!/\/v\d+[a-z]*$/i.test(base)) {
+    push(base + '/v1/models');
+    push(base + '/api/v1/models');
+  }
+  for (const suf of KNOWN_COMPAT_SUFFIXES) {
+    if (base.toLowerCase().endsWith(suf)) {
+      const root = base.slice(0, base.length - suf.length);
+      push(root + '/v1/models');
+      push(root + '/models');
+      break;
+    }
+  }
+  const m = base.match(/^(.*)\/v\d+[a-z]*$/i);
+  if (m) { push(m[1] + '/v1/models'); push(m[1] + '/models'); }
+  return out;
+}
+
+function parseModelList(json) {
+  const out = [];
+  const seen = new Set();
+  const add = (id, owner) => {
+    if (typeof id !== 'string') return;
+    const v = id.trim();
+    if (!v || seen.has(v)) return;
+    seen.add(v);
+    out.push({ id: v, ownedBy: owner ? String(owner) : null });
+  };
+  if (json && typeof json === 'object') {
+    if (Array.isArray(json.data)) {
+      for (const m of json.data) {
+        if (typeof m === 'string') add(m, null);
+        else if (m && typeof m === 'object') add(m.id, m.owned_by);
+      }
+    }
+    if (Array.isArray(json.models)) {
+      for (const m of json.models) {
+        if (typeof m === 'string') add(m, null);
+        else if (m && typeof m === 'object') add(m.slug || m.id || m.name, m.owned_by);
+      }
+    }
+    if (Array.isArray(json.result)) for (const m of json.result) if (m && typeof m === 'object') add(m.id, m.owned_by);
+  }
+  return out;
+}
+
+export async function fetchModels(cfg) {
+  cfg = cfg || {};
+  const candidates = buildModelsUrlCandidates(cfg.baseUrl, cfg.modelsUrl);
+  if (!candidates.length) return { ok: false, kind: 'config', error: '请先填写 Base URL', tried: [] };
+  // 部分服务商（如 OpenRouter）的 /models 是公开端点，无 Key 也允许尝试；失败会返回 401 提示
+  const headers = headersFor({ apiKey: cfg.apiKey, apiFormat: cfg.apiFormat, headers: cfg.headers });
+  delete headers['Content-Type'];
+  const tried = [];
+  let lastStatus = null;
+  for (const url of candidates) {
+    tried.push(url);
+    let res;
+    try {
+      res = await fetch(url, { headers: headers, signal: AbortSignal.timeout(15000), redirect: 'follow' });
+    } catch (e) {
+      lastStatus = 'network';
+      continue;
+    }
+    if (res.ok) {
+      let json = null;
+      try { json = await res.json(); } catch (e) { return { ok: false, kind: 'parse', error: '接口返回的不是 JSON', tried: tried }; }
+      const models = parseModelList(json);
+      if (!models.length) return { ok: false, kind: 'empty', error: '接口返回成功，但没解析到任何模型（可能格式不兼容，请手动填写）', tried: tried };
+      models.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+      return { ok: true, models: models, tried: tried, url: url, count: models.length };
+    }
+    const body = (await res.text().catch(() => '')).slice(0, 300);
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, kind: 'auth', error: 'API Key 无效或无权限（HTTP ' + res.status + '）', tried: tried };
+    }
+    if (res.status === 404 || res.status === 405) { lastStatus = res.status; continue; }
+    return { ok: false, kind: 'http', error: 'HTTP ' + res.status + ' ' + body.replace(/\s+/g, ' ').slice(0, 160), tried: tried };
+  }
+  return {
+    ok: false,
+    kind: 'notfound',
+    error: '试过的地址都没有 /models 接口（HTTP ' + (lastStatus || 'failed') + '）。该服务商可能不开放模型列表，请手动填写模型名，或在下面填「模型接口地址」。',
+    tried: tried,
+  };
 }
 
 // ---------- retrieval ----------
