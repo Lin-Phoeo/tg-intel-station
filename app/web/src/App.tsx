@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   search as searchApi, facets as facetsApi, getPost, related as relApi, getSettings, getClusterMembers,
-  listFavorites, addFavorite, removeFavorite, getState, setState, checkSubscriptions,
+  listFavorites, addFavorite, removeFavorite, getState, setState, checkSubscriptions, semanticQuery,
 } from './api';
 import type { Post, Facets } from './api';
 import { PostCard } from './components/PostCard';
@@ -61,6 +61,8 @@ export default function App() {
   const [newSince, setNewSince] = useState(0);       // 上次访问以来的新内容条数
   const [sinceFilter, setSinceFilter] = useState(0); // 当前是否只看新内容
   const [topKw, setTopKw] = useState<string[]>([]);  // 订阅命中提醒
+  const [semantic, setSemantic] = useState(() => localStorage.getItem('tg.semantic') === '1');
+  const [semanticNote, setSemanticNote] = useState('');
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [cursor, setCursor] = useState(0);           // 键盘选中的卡片下标
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -136,14 +138,29 @@ export default function App() {
   const from = useMemo(() => days ? new Date(Date.now() - days * 86400000).toISOString().slice(0, 10) : '', [days]);
   const filters = useMemo(() => ({ q: dq, category: cat, channel, tags, sort, from, collapse, since: sinceFilter }), [dq, cat, channel, tags, sort, from, collapse, sinceFilter]);
   useEffect(() => { localStorage.setItem('tg.collapse', collapse ? '1' : '0'); }, [collapse]);
+  useEffect(() => { localStorage.setItem('tg.semantic', semantic ? '1' : '0'); }, [semantic]);
 
   async function load(p: number) {
+    // 语义模式：把整段查询交给向量模型做「意思相近」的召回，
+    // 它不是分页检索，一次给完，因此只支持第一页。
+    if (semantic && dq.trim()) {
+      setLoading(true);
+      try {
+        const r = await semanticQuery(dq.trim(), 60);
+        if (r.ok) { setItems(r.items || []); setTotal((r.items || []).length); setMode('semantic'); setSemanticNote('语义检索 · ' + (r.model || '')); }
+        else { setItems([]); setTotal(0); setSemanticNote(r.error || '语义检索不可用'); }
+        setPage(1);
+      } catch (e) { setSemanticNote('语义检索失败：' + String(e)); }
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const r = await searchApi({ ...filters, page: p, size: PAGE });
       setItems(prev => (p === 1 ? r.items : prev.concat(r.items)));
       setTotal(r.total);
       setMode(r.mode);
+      setSemanticNote('');
       setPage(p);
     } catch (e) { console.error(e); }
     setLoading(false);
@@ -363,6 +380,7 @@ export default function App() {
               {sinceFilter > 0 && (
                 <button className="btn ghost" style={{ padding: '1px 9px', fontSize: 12, marginLeft: 10 }} onClick={() => setSinceFilter(0)}>取消「只看新内容」</button>
               )}
+              {semanticNote && <span style={{ fontSize: 12, color: 'var(--violet)', marginLeft: 10 }}>{semanticNote}</span>}
             </span>
             {(cat || channel || tags.length > 0 || dq) && (
               <span style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -373,6 +391,10 @@ export default function App() {
                 <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--fg-dim)', cursor: 'pointer' }} title="同一事件被多个来源发布时只显示一条">
                   <input type="checkbox" checked={collapse} onChange={e => setCollapse(e.target.checked)} style={{ width: 'auto', margin: 0 }} />
                   合并重复来源
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: semantic ? 'var(--violet)' : 'var(--fg-dim)', cursor: 'pointer' }} title="按意思找，不只是按字面匹配（需要在设置里先建好向量索引）">
+                  <input type="checkbox" checked={semantic} onChange={e => setSemantic(e.target.checked)} style={{ width: 'auto', margin: 0 }} />
+                  语义检索
                 </label>
               </span>
             )}

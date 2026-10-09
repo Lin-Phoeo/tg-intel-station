@@ -365,6 +365,84 @@ export async function completeLLM(messages) {
   return (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
 }
 
+// ---------------------------------------------------------------------------
+// 向量化（语义检索用）
+// 复用当前服务的 baseUrl / apiKey，模型可单独指定。
+// ---------------------------------------------------------------------------
+const EMBED_FALLBACKS = ['text-embedding-3-small', 'text-embedding-3-large', 'text-embedding-v3', 'BAAI/bge-m3', 'bge-m3', 'nomic-embed-text', 'embedding-2'];
+
+export function embeddingProfile() {
+  const s = loadSettings();
+  const p = activeProfile();
+  if (!p) return null;
+  return {
+    baseUrl: s.embedBaseUrl || p.baseUrl || '',
+    apiKey: s.embedApiKey || p.apiKey || '',
+    model: s.embedModel || '',
+    apiFormat: p.apiFormat || 'openai',
+    headers: p.headers || '',
+  };
+}
+
+function baseOf(url) {
+  return String(url || '').replace(/\/+$/, '').replace(/\/(chat\/completions|embeddings|models)$/, '');
+}
+
+function embedUrls(base) {
+  const b = baseOf(base);
+  const out = [b + '/embeddings'];
+  if (!/\/v1$/.test(b)) out.push(b + '/v1/embeddings');
+  return [...new Set(out)];
+}
+
+function parseEmbedding(j) {
+  const arr = (j && j.data) || (j && j.embeddings) || [];
+  if (!Array.isArray(arr) || !arr.length) return null;
+  const first = arr[0];
+  const vec = Array.isArray(first) ? first : (first && first.embedding);
+  if (!Array.isArray(vec) || !vec.length) return null;
+  return arr.map(x => (Array.isArray(x) ? x : x.embedding));
+}
+
+// 返回 number[][]（与输入等长）。cfg 可覆盖 baseUrl/apiKey/model。
+export async function embed(texts, cfg) {
+  const p = Object.assign(embeddingProfile() || {}, cfg || {});
+  if (!p.baseUrl) throw new Error('未配置服务地址，无法向量化');
+  const headers = headersFor({ apiKey: p.apiKey, apiFormat: p.apiFormat, headers: p.headers });
+  const models = p.model ? [p.model] : EMBED_FALLBACKS;
+  const urls = embedUrls(p.baseUrl);
+  const errors = [];
+
+  for (const model of models) {
+    for (const url of urls) {
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: headers,
+          body: JSON.stringify({ model: model, input: texts }),
+          signal: AbortSignal.timeout(90000),
+        });
+        if (!res.ok) {
+          const body = await res.text().catch(() => '');
+          errors.push(model + ' @ ' + url + ' -> ' + res.status + ' ' + body.slice(0, 120));
+          if (res.status === 401 || res.status === 403) throw new Error('鉴权失败（' + res.status + '），请检查 API Key');
+          continue;
+        }
+        const j = await res.json();
+        const vecs = parseEmbedding(j);
+        if (vecs) return { vectors: vecs, model: model, url: url };
+        errors.push(model + ' @ ' + url + ' -> 返回结构无法解析');
+      } catch (e) {
+        if (String(e.message || '').indexOf('鉴权失败') >= 0) throw e;
+        errors.push(model + ' @ ' + url + ' -> ' + String(e.message || e).slice(0, 100));
+      }
+    }
+  }
+  const err = new Error('没有可用的向量模型。可在设置里手动指定「向量模型」。已尝试：\n' + errors.slice(0, 6).join('\n'));
+  err.detail = errors.slice(0, 12);
+  throw err;
+}
+
 export function hasKey() {
   const p = activeProfile();
   return !!(p && p.apiKey && p.baseUrl && p.model);

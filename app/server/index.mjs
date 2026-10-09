@@ -9,6 +9,7 @@ import * as bot from './bot.mjs';
 import * as source from './source.mjs';
 import * as sync from './sync.mjs';
 import * as backup from './backup.mjs';
+import * as semantic from './semantic.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const DIST = path.join(ROOT, 'app', 'web', 'dist');
@@ -140,6 +141,22 @@ async function api(req, res, pathname, query) {
   const mSub = pathname.match(/^\/api\/subscriptions\/(\d+)$/);
   if (mSub && req.method === 'DELETE') {
     return send(res, 200, { ok: store.removeSubscription(mSub[1]), items: store.listSubscriptions() });
+  }
+
+  // ---------- 语义检索 ----------
+  if (pathname === '/api/semantic/status') return send(res, 200, semantic.getStatus());
+  if (pathname === '/api/semantic/build' && req.method === 'POST') {
+    const body = await readBody(req).catch(() => ({}));
+    return send(res, 200, semantic.startBuild(body));
+  }
+  if (pathname === '/api/semantic/clear' && req.method === 'POST') {
+    return send(res, 200, { ok: semantic.clearIndex(), stats: store.embedStats() });
+  }
+  if (pathname === '/api/semantic') {
+    const k = Math.min(100, Number(query.k || 30));
+    const r = await semantic.semanticSearch(String(query.q || ''), Math.max(k * 8, 200));
+    if (!r.ok) return send(res, 200, { ok: false, error: r.error, items: [] });
+    return send(res, 200, { ok: true, model: r.model, items: r.items.slice(0, k) });
   }
 
   // ---------- 备份 / 恢复 ----------

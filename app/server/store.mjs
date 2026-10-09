@@ -6,6 +6,7 @@ import { splitTerms, toGram } from '../../core/text.mjs';
 import { buildQuery, orExpr } from '../../core/query.mjs';
 import { orderBy, orderBySimple, bm25Expr } from '../../core/rank.mjs';
 import { clusterKey } from '../../core/cluster.mjs';
+import { fromBuffer } from '../../core/vector.mjs';
 
 export { splitTerms };
 
@@ -57,6 +58,7 @@ function createSchema() {
   db.exec("CREATE TABLE IF NOT EXISTS favorites(post_id INTEGER PRIMARY KEY, tags TEXT DEFAULT '', note TEXT DEFAULT '', created_at TEXT)");
   db.exec("CREATE TABLE IF NOT EXISTS subscriptions(id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT NOT NULL, tags TEXT DEFAULT '', min_value REAL DEFAULT 0, enabled INTEGER DEFAULT 1, created_at TEXT, last_hit_at TEXT, hit_count INTEGER DEFAULT 0)");
   db.exec("CREATE TABLE IF NOT EXISTS app_state(k TEXT PRIMARY KEY, v TEXT)");
+  db.exec('CREATE TABLE IF NOT EXISTS embeddings(post_id INTEGER PRIMARY KEY, vec BLOB, dim INTEGER, norm REAL, model TEXT, at TEXT)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_posts_lookup ON posts(channel, msg_id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_posts_cluster ON posts(cluster_key)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_posts_rep ON posts(rep_id)');
@@ -80,6 +82,7 @@ function migrate() {
   db.exec("CREATE TABLE IF NOT EXISTS favorites(post_id INTEGER PRIMARY KEY, tags TEXT DEFAULT '', note TEXT DEFAULT '', created_at TEXT)");
   db.exec("CREATE TABLE IF NOT EXISTS subscriptions(id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT NOT NULL, tags TEXT DEFAULT '', min_value REAL DEFAULT 0, enabled INTEGER DEFAULT 1, created_at TEXT, last_hit_at TEXT, hit_count INTEGER DEFAULT 0)");
   db.exec("CREATE TABLE IF NOT EXISTS app_state(k TEXT PRIMARY KEY, v TEXT)");
+  db.exec('CREATE TABLE IF NOT EXISTS embeddings(post_id INTEGER PRIMARY KEY, vec BLOB, dim INTEGER, norm REAL, model TEXT, at TEXT)');
 }
 
 function ensureSchema() {
@@ -330,6 +333,47 @@ export function setState(k, v) {
   const d = open();
   d.prepare('INSERT OR REPLACE INTO app_state(k, v) VALUES(?,?)').run(k, String(v));
   return true;
+}
+
+// ---------- 向量（语义检索）----------
+export function embedStats() {
+  const d = open();
+  const r = d.prepare('SELECT COUNT(*) AS n, MIN(dim) AS dim, MAX(model) AS model FROM embeddings').get();
+  const total = d.prepare('SELECT COUNT(*) AS n FROM posts WHERE value >= ?').get(4);
+  return { indexed: r ? Number(r.n) : 0, dim: r && r.dim ? Number(r.dim) : 0, model: (r && r.model) || '', eligible: total ? Number(total.n) : 0 };
+}
+
+// 取还需要向量化的帖子。只做价值分达标的，避免给 87 万条全量算。
+export function postsNeedingEmbedding(limit, minValue) {
+  const d = open();
+  return d.prepare('SELECT p.id, p.text FROM posts p LEFT JOIN embeddings e ON e.post_id = p.id WHERE e.post_id IS NULL AND p.value >= ? AND LENGTH(p.text) >= 15 ORDER BY p.value DESC LIMIT ?')
+    .all(Number(minValue == null ? 4 : minValue), Number(limit || 64))
+    .map(r => ({ id: Number(r.id), text: String(r.text || '') }));
+}
+
+export function saveEmbeddings(rows) {
+  const d = open();
+  const stmt = d.prepare('INSERT OR REPLACE INTO embeddings(post_id, vec, dim, norm, model, at) VALUES(?,?,?,?,?,?)');
+  const at = new Date().toISOString();
+  d.exec('BEGIN');
+  for (const r of rows) stmt.run(r.id, r.vec, r.dim, r.norm, r.model || '', at);
+  d.exec('COMMIT');
+  return rows.length;
+}
+
+export function loadEmbeddings() {
+  const d = open();
+  return d.prepare('SELECT post_id, vec, norm FROM embeddings').all()
+    .map(r => ({ id: Number(r.post_id), vec: fromBuffer(r.vec), norm: Number(r.norm) || 127 }));
+}
+
+export function clearEmbeddings() { open().exec('DELETE FROM embeddings'); return true; }
+
+export function getPostsByIds(ids) {
+  const d = open();
+  if (!ids.length) return [];
+  const ph = ids.map(function () { return '?'; }).join(',');
+  return d.prepare('SELECT ' + SELECT_COLS + ' FROM posts p WHERE p.id IN (' + ph + ')').all(...ids.map(Number)).map(rowToPost);
 }
 
 // 同一事件的其他来源

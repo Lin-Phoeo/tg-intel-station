@@ -3,6 +3,7 @@ import { getSettings, saveSettings, testSettings } from '../api';
 import { ModelPicker } from './ModelPicker';
 import { BotSettings } from './BotSettings';
 import { BackupPanel } from './BackupPanel';
+import { SemanticPanel } from './SemanticPanel';
 
 type Profile = { id: string; name: string; baseUrl: string; model: string; apiKey?: string; hasKey?: boolean; keyHint?: string; headers?: string; apiFormat?: string; modelsUrl?: string };
 const blank = (): Profile => ({ id: 'p' + Date.now().toString(36), name: '新服务商', baseUrl: '', model: '', apiKey: '', headers: '', apiFormat: 'openai', modelsUrl: '' });
@@ -192,6 +193,11 @@ export function SettingsModal({ open, onClose, onActiveChange, initialTab }: { o
           <div style={{ fontSize: 13, color: 'var(--fg-dim)', marginBottom: 16, lineHeight: 1.7 }}>
             把整个情报库和配置打包留档，随时可以退回。误删了抓来的数据、想换电脑、升级前留底，都用得上。
           </div>
+          <div className="divider" style={{ margin: '22px 0 16px' }} />
+          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>语义检索（向量索引）</div>
+          <SemanticPanel />
+          <div className="divider" style={{ margin: '22px 0 16px' }} />
+          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>数据备份</div>
           <BackupPanel />
         </>)}
       </div>

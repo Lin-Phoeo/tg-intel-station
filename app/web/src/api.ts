@@ -166,6 +166,23 @@ export async function checkSubscriptions(since?: number): Promise<{ since: numbe
   return r.json();
 }
 
+// ---------- 语义检索 ----------
+export async function semanticStatus(): Promise<any> {
+  return (await fetch('/api/semantic/status')).json();
+}
+export async function buildSemanticIndex(opts?: any): Promise<any> {
+  const r = await fetch('/api/semantic/build', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(opts || {}),
+  });
+  return r.json();
+}
+export async function clearSemanticIndex(): Promise<any> {
+  return (await fetch('/api/semantic/clear', { method: 'POST' })).json();
+}
+export async function semanticQuery(q: string, k?: number): Promise<any> {
+  return (await fetch('/api/semantic?q=' + encodeURIComponent(q) + '&k=' + (k || 30))).json();
+}
+
 // ---------- 备份 / 恢复 ----------
 export async function listBackups(): Promise<{ items: any[]; dir: string }> {
   return (await fetch('/api/backups')).json();

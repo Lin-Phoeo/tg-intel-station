@@ -186,6 +186,42 @@ test('search: since 按时间戳过滤', () => {
   assert.ok(past.total > 0, '很久以前的时间点应包含全部');
 });
 
+test('向量：存入、读回、统计与清理', async () => {
+  const { normalize, quantizeInt8, normInt8, toBuffer } = await import('../core/vector.mjs');
+  const a = store.insertPost(rec({ msgId: 50, text: '向量化测试甲，内容足够长以便入选', value: 6 }));
+  const b = store.insertPost(rec({ msgId: 51, text: '向量化测试乙，内容足够长以便入选', value: 5 }));
+  const c = store.insertPost(rec({ msgId: 52, text: '低价值的帖子不该被向量化', value: 1 }));
+
+  const need = store.postsNeedingEmbedding(50, 4).map(x => x.id);
+  assert.ok(need.includes(a.id) && need.includes(b.id), '达标帖子应待向量化');
+  assert.ok(!need.includes(c.id), '低价值帖子不应被纳入');
+
+  const mk = (v) => { const q = quantizeInt8(normalize(v)); return { vec: toBuffer(q), dim: q.length, norm: normInt8(q) }; };
+  store.saveEmbeddings([
+    Object.assign({ id: a.id, model: 'test-model' }, mk([1, 0, 0, 1])),
+    Object.assign({ id: b.id, model: 'test-model' }, mk([0, 1, 1, 0])),
+  ]);
+
+  const stats = store.embedStats();
+  assert.equal(stats.indexed, 2);
+  assert.equal(stats.dim, 4);
+  assert.equal(stats.model, 'test-model');
+
+  const loaded = store.loadEmbeddings();
+  assert.equal(loaded.length, 2);
+  const got = loaded.find(x => x.id === a.id);
+  assert.equal(got.vec.length, 4, 'int8 向量应无损读回');
+  assert.ok(got.norm > 0);
+
+  assert.equal(store.postsNeedingEmbedding(50, 4).map(x => x.id).includes(a.id), false, '已索引的不应再出现');
+
+  const posts = store.getPostsByIds([a.id, c.id]);
+  assert.equal(posts.length, 2);
+
+  store.clearEmbeddings();
+  assert.equal(store.embedStats().indexed, 0);
+});
+
 test('来源登记可增删查', () => {
   store.upsertSource({ id: 'somechan', kind: 'channel', title: '测试频道' });
   assert.ok(store.listSources().some(s => s.id === 'somechan'));
