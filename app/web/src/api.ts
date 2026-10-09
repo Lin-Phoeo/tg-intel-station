@@ -4,6 +4,7 @@ export type Post = {
   media: string; text: string; category: string; categories: string[]; tags: string[];
   hashtags: string[]; value: number; content: number; url: string; links: string[];
   domains: string[]; lpTitle: string; repId: number | null; clusterSize: number;
+  favTags?: string[]; favNote?: string; favAt?: string;
 };
 export type Facets = {
   categories: { k: string; n: number }[];
@@ -14,6 +15,7 @@ export type Facets = {
 export type Filters = {
   q?: string; category?: string; channel?: string; from?: string; to?: string;
   tags?: string[]; sort?: string; page?: number; size?: number; minValue?: number; collapse?: boolean;
+  from?: string; since?: number;
 };
 export type SearchResult = { mode: string; total: number; page: number; size: number; items: Post[] };
 
@@ -128,6 +130,52 @@ export async function listSources(): Promise<{ sources: any[] }> {
   return (await fetch('/api/sources')).json();
 }
 
+// ---------- 收藏 ----------
+export async function listFavorites(): Promise<{ items: Post[]; ids: number[] }> {
+  return (await fetch('/api/favorites')).json();
+}
+export async function addFavorite(id: number, tags?: string[], note?: string): Promise<{ ok: boolean; ids: number[] }> {
+  const r = await fetch('/api/favorites', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, tags: tags || [], note: note || '' }),
+  });
+  return r.json();
+}
+export async function removeFavorite(id: number): Promise<{ ok: boolean; ids: number[] }> {
+  return (await fetch('/api/favorites/' + id, { method: 'DELETE' })).json();
+}
+
+// ---------- 关键词订阅 ----------
+export async function listSubscriptions(): Promise<{ items: any[] }> {
+  return (await fetch('/api/subscriptions')).json();
+}
+export async function saveSubscription(rec: any): Promise<{ ok: boolean; items: any[] }> {
+  const r = await fetch('/api/subscriptions', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(rec),
+  });
+  return r.json();
+}
+export async function removeSubscription(id: number): Promise<{ ok: boolean; items: any[] }> {
+  return (await fetch('/api/subscriptions/' + id, { method: 'DELETE' })).json();
+}
+export async function checkSubscriptions(since?: number): Promise<{ since: number; results: any[] }> {
+  const r = await fetch('/api/subscriptions/check', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(since ? { since: since } : {}),
+  });
+  return r.json();
+}
+
+// ---------- 应用状态 ----------
+export async function getState(k: string): Promise<{ k: string; v: string | null }> {
+  return (await fetch('/api/state/' + k)).json();
+}
+export async function setState(k: string, v: string): Promise<{ ok: boolean }> {
+  const r = await fetch('/api/state/' + k, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ v }),
+  });
+  return r.json();
+}
 // ---------- 一键补齐 ----------
 export async function getSyncStatus(): Promise<any> {
   return (await fetch('/api/sync/status')).json();

@@ -54,6 +54,9 @@ function createSchema() {
   db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS posts_fts USING fts5(text_gram, tags_gram, domains, channel, content='', tokenize='unicode61')");
   db.exec("CREATE TABLE IF NOT EXISTS sources(id TEXT PRIMARY KEY, kind TEXT, title TEXT, members TEXT, url TEXT, added_at TEXT, last_sync TEXT, imported INTEGER DEFAULT 0, note TEXT)");
   db.exec("CREATE TABLE IF NOT EXISTS job_runs(job_key TEXT NOT NULL, run_date TEXT NOT NULL, status TEXT NOT NULL, started_at TEXT, finished_at TEXT, detail TEXT, PRIMARY KEY(job_key, run_date))");
+  db.exec("CREATE TABLE IF NOT EXISTS favorites(post_id INTEGER PRIMARY KEY, tags TEXT DEFAULT '', note TEXT DEFAULT '', created_at TEXT)");
+  db.exec("CREATE TABLE IF NOT EXISTS subscriptions(id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT NOT NULL, tags TEXT DEFAULT '', min_value REAL DEFAULT 0, enabled INTEGER DEFAULT 1, created_at TEXT, last_hit_at TEXT, hit_count INTEGER DEFAULT 0)");
+  db.exec("CREATE TABLE IF NOT EXISTS app_state(k TEXT PRIMARY KEY, v TEXT)");
   db.exec('CREATE INDEX IF NOT EXISTS idx_posts_lookup ON posts(channel, msg_id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_posts_cluster ON posts(cluster_key)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_posts_rep ON posts(rep_id)');
@@ -74,6 +77,9 @@ function migrate() {
   db.exec('CREATE INDEX IF NOT EXISTS idx_posts_rep ON posts(rep_id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_posts_isrep ON posts(is_rep)');
   db.exec("CREATE TABLE IF NOT EXISTS job_runs(job_key TEXT NOT NULL, run_date TEXT NOT NULL, status TEXT NOT NULL, started_at TEXT, finished_at TEXT, detail TEXT, PRIMARY KEY(job_key, run_date))");
+  db.exec("CREATE TABLE IF NOT EXISTS favorites(post_id INTEGER PRIMARY KEY, tags TEXT DEFAULT '', note TEXT DEFAULT '', created_at TEXT)");
+  db.exec("CREATE TABLE IF NOT EXISTS subscriptions(id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT NOT NULL, tags TEXT DEFAULT '', min_value REAL DEFAULT 0, enabled INTEGER DEFAULT 1, created_at TEXT, last_hit_at TEXT, hit_count INTEGER DEFAULT 0)");
+  db.exec("CREATE TABLE IF NOT EXISTS app_state(k TEXT PRIMARY KEY, v TEXT)");
 }
 
 function ensureSchema() {
@@ -232,6 +238,100 @@ function rowToPost(r) {
   };
 }
 
+// ---------- 收藏（落库，不再只存在浏览器里）----------
+export function listFavorites() {
+  const d = open();
+  const rows = d.prepare('SELECT ' + SELECT_COLS + ', f.tags AS fav_tags, f.note AS fav_note, f.created_at AS fav_at FROM favorites f JOIN posts p ON p.id = f.post_id ORDER BY f.created_at DESC').all();
+  return rows.map(r => Object.assign(rowToPost(r), {
+    favTags: String(r.fav_tags || '').split(',').filter(Boolean),
+    favNote: r.fav_note || '',
+    favAt: r.fav_at || '',
+  }));
+}
+
+export function isFavorite(postId) {
+  const d = open();
+  return !!d.prepare('SELECT 1 AS x FROM favorites WHERE post_id = ?').get(Number(postId));
+}
+
+export function addFavorite(postId, tags, note) {
+  const d = open();
+  d.prepare('INSERT OR REPLACE INTO favorites(post_id, tags, note, created_at) VALUES(?,?,?,?)')
+    .run(Number(postId), (tags || []).join(','), note || '', new Date().toISOString());
+  return true;
+}
+
+export function removeFavorite(postId) {
+  const d = open();
+  const r = d.prepare('DELETE FROM favorites WHERE post_id = ?').run(Number(postId));
+  return Number(r.changes) > 0;
+}
+
+export function favoriteIds() {
+  const d = open();
+  return d.prepare('SELECT post_id FROM favorites').all().map(r => Number(r.post_id));
+}
+
+// ---------- 关键词订阅 ----------
+export function listSubscriptions() {
+  const d = open();
+  return d.prepare('SELECT * FROM subscriptions ORDER BY id DESC').all().map(r => ({
+    id: Number(r.id), keyword: r.keyword, tags: String(r.tags || '').split(',').filter(Boolean),
+    minValue: Number(r.min_value || 0), enabled: Number(r.enabled) === 1,
+    createdAt: r.created_at, lastHitAt: r.last_hit_at, hitCount: Number(r.hit_count || 0),
+  }));
+}
+
+export function upsertSubscription(rec) {
+  const d = open();
+  if (rec.id) {
+    d.prepare('UPDATE subscriptions SET keyword=?, tags=?, min_value=?, enabled=? WHERE id=?')
+      .run(rec.keyword, (rec.tags || []).join(','), rec.minValue || 0, rec.enabled === false ? 0 : 1, Number(rec.id));
+    return Number(rec.id);
+  }
+  const info = d.prepare('INSERT INTO subscriptions(keyword, tags, min_value, enabled, created_at) VALUES(?,?,?,?,?)')
+    .run(rec.keyword, (rec.tags || []).join(','), rec.minValue || 0, rec.enabled === false ? 0 : 1, new Date().toISOString());
+  return Number(info.lastInsertRowid);
+}
+
+export function removeSubscription(id) {
+  const d = open();
+  return Number(d.prepare('DELETE FROM subscriptions WHERE id = ?').run(Number(id)).changes) > 0;
+}
+
+// 逐条订阅去检索，返回命中情况（供界面「检查命中」与补齐后提醒使用）
+export function checkSubscriptions(sinceTs) {
+  const subs = listSubscriptions().filter(s => s.enabled);
+  const out = [];
+  for (const s of subs) {
+    let r;
+    try {
+      r = search({ q: s.keyword, tags: s.tags, minValue: s.minValue, since: sinceTs || 0, sort: 'date', size: 5 });
+    } catch (e) { r = { total: 0, items: [] }; }
+    out.push({ id: s.id, keyword: s.keyword, tags: s.tags, count: r.total, items: r.items });
+  }
+  return out;
+}
+
+export function markSubscriptionHit(id, count) {
+  const d = open();
+  d.prepare('UPDATE subscriptions SET last_hit_at = ?, hit_count = hit_count + ? WHERE id = ?')
+    .run(new Date().toISOString(), count, Number(id));
+}
+
+// ---------- 应用状态（上次访问时间等）----------
+export function getState(k, def) {
+  const d = open();
+  const r = d.prepare('SELECT v FROM app_state WHERE k = ?').get(k);
+  return r ? r.v : (def === undefined ? null : def);
+}
+
+export function setState(k, v) {
+  const d = open();
+  d.prepare('INSERT OR REPLACE INTO app_state(k, v) VALUES(?,?)').run(k, String(v));
+  return true;
+}
+
 // 同一事件的其他来源
 export function clusterMembers(repId) {
   const d = open();
@@ -240,7 +340,7 @@ export function clusterMembers(repId) {
 }
 
 export function search(opts) {
-  const { q = '', category = '', tags = [], channel = '', from = '', to = '', sort = 'relevance', page = 1, size = 30, minValue = 0, collapse = true } = opts;
+  const { q = '', category = '', tags = [], channel = '', from = '', to = '', since = 0, sort = 'relevance', page = 1, size = 30, minValue = 0, collapse = true } = opts;
   const d = open();
   const where = [];
   const params = [];
@@ -249,6 +349,7 @@ export function search(opts) {
   if (channel) { where.push('p.channel = ?'); params.push(channel); }
   if (from) { where.push('p.date >= ?'); params.push(from); }
   if (to) { where.push('p.date <= ?'); params.push(to); }
+  if (since) { where.push('p.ts > ?'); params.push(Number(since)); }
   if (minValue) { where.push('p.value >= ?'); params.push(minValue); }
   for (const t of tags) { where.push("(',' || p.tags || ',') LIKE ?"); params.push('%,' + t + ',%'); }
   // 同事件聚合：默认只显示每个簇的代表条目。is_rep 有索引，计数与分页都是索引扫描。

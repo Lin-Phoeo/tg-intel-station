@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { search as searchApi, facets as facetsApi, getPost, related as relApi, getSettings, getClusterMembers } from './api';
+import {
+  search as searchApi, facets as facetsApi, getPost, related as relApi, getSettings, getClusterMembers,
+  listFavorites, addFavorite, removeFavorite, getState, setState, checkSubscriptions,
+} from './api';
 import type { Post, Facets } from './api';
 import { PostCard } from './components/PostCard';
 import { Detail } from './components/Detail';
@@ -7,6 +10,7 @@ import { ChatPanel } from './components/ChatPanel';
 import { SettingsModal } from './components/SettingsModal';
 import { AddSourceModal } from './components/AddSourceModal';
 import { SyncButton } from './components/SyncButton';
+import { SubscriptionsModal } from './components/SubscriptionsModal';
 import { catColor, fmtNum } from './lib/util';
 
 const PAGE = 40;
@@ -50,7 +54,11 @@ export default function App() {
   const [collapse, setCollapse] = useState(() => localStorage.getItem('tg.collapse') !== '0');
   const [panel, setPanel] = useState<'chat' | 'detail'>('chat');
   const [rightOpen, setRightOpen] = useState(true);
-  const [favIds, setFavIds] = useState<number[]>(() => { try { return JSON.parse(localStorage.getItem('tg.favs') || '[]'); } catch (e) { return []; } });
+  const [favIds, setFavIds] = useState<number[]>([]);
+  const [subsOpen, setSubsOpen] = useState(false);
+  const [newSince, setNewSince] = useState(0);       // 上次访问以来的新内容条数
+  const [sinceFilter, setSinceFilter] = useState(0); // 当前是否只看新内容
+  const [topKw, setTopKw] = useState<string[]>([]);  // 订阅命中提醒
   const [view, setView] = useState<'feed' | 'favs'>('feed');
   const [favPosts, setFavPosts] = useState<Post[]>([]);
   const [askPost, setAskPost] = useState<Post | null>(null);
@@ -62,7 +70,40 @@ export default function App() {
 
   useEffect(() => { document.documentElement.setAttribute('data-theme', theme); localStorage.setItem('tg.theme', theme); }, [theme]);
   useEffect(() => { document.documentElement.setAttribute('data-size', size); localStorage.setItem('tg.size', size); }, [size]);
-  useEffect(() => { localStorage.setItem('tg.favs', JSON.stringify(favIds)); }, [favIds]);
+  // 收藏改为落库：换浏览器、清缓存都不会丢。
+  // 首次运行时把浏览器里已有的旧收藏迁移上去。
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await listFavorites();
+        setFavIds(r.ids || []);
+        if (!(r.ids || []).length) {
+          let old: number[] = [];
+          try { old = JSON.parse(localStorage.getItem('tg.favs') || '[]'); } catch (e) {}
+          for (const id of old) { try { await addFavorite(id); } catch (e) {} }
+          if (old.length) { const r2 = await listFavorites(); setFavIds(r2.ids || []); localStorage.removeItem('tg.favs'); }
+        }
+      } catch (e) {}
+    })();
+  }, []);
+
+  useEffect(() => { const t = setTimeout(() => { runSubCheck(); }, 2500); return () => clearTimeout(t); }, []);
+
+  // 上次访问以来的新内容：先读旧时间点算差值，再把时间点推进到当前
+  useEffect(() => {
+    (async () => {
+      try {
+        const st = await getState('lastVisit');
+        const prev = Number(st.v || 0);
+        const now = Math.floor(Date.now() / 1000);
+        if (prev > 0) {
+          const r = await searchApi({ q: '', since: prev, size: 1, sort: 'date' });
+          setNewSince(Number(r.total || 0));
+        }
+        await setState('lastVisit', String(now));
+      } catch (e) {}
+    })();
+  }, []);
   useEffect(() => { facetsApi().then(setFac); }, []);
   const [providers, setProviders] = useState<{ id: string; name: string; hasKey: boolean }[]>([]);
   const [activeId, setActiveId] = useState('');
@@ -87,7 +128,7 @@ export default function App() {
   }, []);
 
   const from = useMemo(() => days ? new Date(Date.now() - days * 86400000).toISOString().slice(0, 10) : '', [days]);
-  const filters = useMemo(() => ({ q: dq, category: cat, channel, tags, sort, from, collapse }), [dq, cat, channel, tags, sort, from, collapse]);
+  const filters = useMemo(() => ({ q: dq, category: cat, channel, tags, sort, from, collapse, since: sinceFilter }), [dq, cat, channel, tags, sort, from, collapse, sinceFilter]);
   useEffect(() => { localStorage.setItem('tg.collapse', collapse ? '1' : '0'); }, [collapse]);
 
   async function load(p: number) {
@@ -143,12 +184,20 @@ export default function App() {
     try { const p = await getPost(id); if (p && (p as any).id) openPost(p); } catch (e) {}
   }
   function toggleFav(p: Post) {
-    setFavIds(prev => prev.includes(p.id) ? prev.filter(x => x !== p.id) : prev.concat([p.id]));
+    const on = favIds.includes(p.id);
+    setFavIds(prev => on ? prev.filter(x => x !== p.id) : prev.concat([p.id]));
+    (on ? removeFavorite(p.id) : addFavorite(p.id)).then(r => { if (r && r.ids) setFavIds(r.ids); }).catch(() => {});
   }
   async function showFavs() {
     setView('favs');
-    const ps = await Promise.all(favIds.slice(0, 80).map(id => getPost(id).catch(() => null)));
-    setFavPosts(ps.filter(Boolean) as Post[]);
+    try { const r = await listFavorites(); setFavPosts(r.items || []); setFavIds(r.ids || []); } catch (e) { setFavPosts([]); }
+  }
+  async function runSubCheck() {
+    try {
+      const r = await checkSubscriptions();
+      const hit = (r.results || []).filter((x: any) => x.count > 0);
+      setTopKw(hit.map((x: any) => x.keyword + ' ' + x.count));
+    } catch (e) {}
   }
   function ask(p: Post) { setAskPost(p); setPanel('chat'); setRightOpen(true); }
 
@@ -174,6 +223,9 @@ export default function App() {
           <button className="btn ghost" style={{ justifyContent: 'flex-start', background: view === 'favs' ? 'var(--bg-3)' : 'transparent', color: view === 'favs' ? 'var(--fg)' : 'var(--fg-dim)' }} onClick={showFavs}>{'★ 我的收藏 (' + favIds.length + ')'}</button>
           <button className="btn ghost" style={{ justifyContent: 'flex-start' }} onClick={() => { setPanel('chat'); setRightOpen(true); }}>✨ AI 情报助手</button>
           <button className="btn ghost" style={{ justifyContent: 'flex-start' }} onClick={() => setAddSourceOpen(true)}>🔗 按链接抓取</button>
+          <button className="btn ghost" style={{ justifyContent: 'flex-start' }} onClick={() => setSubsOpen(true)}>
+            {'🔔 关键词订阅'}{(topKw.length ? ' · ' + topKw.length : '')}
+          </button>
         </div>
 
         <SyncButton onDone={() => { facetsApi().then(setFac); load(1); }} />
@@ -235,7 +287,16 @@ export default function App() {
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 9, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12.5, color: 'var(--fg-dim)' }}>
-              {view === 'favs' ? <>{'收藏 ' + favPosts.length + ' 条'}</> : <>{loading && page === 1 ? '检索中…' : ('找到约 ' + fmtNum(total) + ' 条')}{mode === 'like' ? '（短词模糊匹配）' : ''}</>}
+              {view === 'favs' ? <>{'收藏 ' + favPosts.length + ' 条'}</> : <>{loading && page === 1 ? '检索中…' : ('找到约 ' + fmtNum(total) + ' 条')}</>}
+              {newSince > 0 && !sinceFilter && view === 'feed' && (
+                <button className="btn ghost" style={{ padding: '1px 9px', fontSize: 12, marginLeft: 10, color: 'var(--green)', borderColor: 'color-mix(in srgb, var(--green) 45%, transparent)' }}
+                  onClick={() => setSinceFilter(Math.floor(Date.now() / 1000))} title="只看上次访问之后新增的内容">
+                  {'上次访问后有 ' + fmtNum(newSince) + ' 条新内容'}
+                </button>
+              )}
+              {sinceFilter > 0 && (
+                <button className="btn ghost" style={{ padding: '1px 9px', fontSize: 12, marginLeft: 10 }} onClick={() => setSinceFilter(0)}>取消「只看新内容」</button>
+              )}
             </span>
             {(cat || channel || tags.length > 0 || dq) && (
               <span style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -290,6 +351,7 @@ export default function App() {
 
       <SettingsModal open={settingsOpen} onClose={() => { setSettingsOpen(false); refreshProviders(); }} onActiveChange={refreshProviders} initialTab={settingsTab} />
       <AddSourceModal open={addSourceOpen} onClose={() => setAddSourceOpen(false)} onImported={() => { facetsApi().then(setFac); load(1); }} />
+      <SubscriptionsModal open={subsOpen} onClose={() => { setSubsOpen(false); runSubCheck(); }} onPick={kw => { setView('feed'); setQ(kw); setDq(kw); setSinceFilter(0); }} />
     </div>
   );
 }

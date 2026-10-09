@@ -61,7 +61,7 @@ async function api(req, res, pathname, query) {
     const q = query;
     const r = store.search({
       q: q.q || '', category: q.category || '', channel: q.channel || '',
-      from: q.from || '', to: q.to || '',
+      from: q.from || '', to: q.to || '', since: Number(q.since || 0),
       tags: q.tags ? (Array.isArray(q.tags) ? q.tags : String(q.tags).split(',')).filter(Boolean) : [],
       sort: q.sort || 'relevance', page: Number(q.page || 1), size: Math.min(100, Number(q.size || 30)),
       minValue: Number(q.minValue || 0),
@@ -78,6 +78,58 @@ async function api(req, res, pathname, query) {
 
   const mClu = pathname.match(/^\/api\/cluster\/(\d+)$/);
   if (mClu) return send(res, 200, { items: store.clusterMembers(mClu[1]) });
+
+  // ---------- 收藏 ----------
+  if (pathname === '/api/favorites') {
+    if (req.method === 'GET') return send(res, 200, { items: store.listFavorites(), ids: store.favoriteIds() });
+    if (req.method === 'POST') {
+      const body = await readBody(req);
+      store.addFavorite(body.id, body.tags || [], body.note || '');
+      return send(res, 200, { ok: true, ids: store.favoriteIds() });
+    }
+  }
+  const mFav = pathname.match(/^\/api\/favorites\/(\d+)$/);
+  if (mFav && req.method === 'DELETE') {
+    return send(res, 200, { ok: store.removeFavorite(mFav[1]), ids: store.favoriteIds() });
+  }
+
+  // ---------- 关键词订阅 ----------
+  if (pathname === '/api/subscriptions') {
+    if (req.method === 'GET') return send(res, 200, { items: store.listSubscriptions() });
+    if (req.method === 'POST') {
+      const body = await readBody(req);
+      if (!String(body.keyword || '').trim()) return send(res, 400, { error: '关键词不能为空' });
+      const id = store.upsertSubscription(body);
+      return send(res, 200, { ok: true, id: id, items: store.listSubscriptions() });
+    }
+  }
+  if (pathname === '/api/subscriptions/check' && req.method === 'POST') {
+    const body = await readBody(req);
+    // 优先用调用方给的时间点（订阅自己的「上次检查」），否则回退到「上次访问」
+    const since = Number(body.since || 0) || (Number(store.getState('lastSubCheck', 0)) || 0) || (Number(store.getState('lastVisit', 0)) || 0);
+    const results = store.checkSubscriptions(since);
+    for (const r of results) if (r.count) store.markSubscriptionHit(r.id, r.count);
+    // 时间点由服务端推进，不依赖前端调用顺序
+    const next = Math.floor(Date.now() / 1000);
+    store.setState('lastSubCheck', String(next));
+    return send(res, 200, { since: since, next: next, results: results });
+  }
+
+  const mSub = pathname.match(/^\/api\/subscriptions\/(\d+)$/);
+  if (mSub && req.method === 'DELETE') {
+    return send(res, 200, { ok: store.removeSubscription(mSub[1]), items: store.listSubscriptions() });
+  }
+
+  // ---------- 应用状态（上次访问时间等）----------
+  const mSt = pathname.match(/^\/api\/state\/([A-Za-z0-9_.-]+)$/);
+  if (mSt) {
+    if (req.method === 'GET') return send(res, 200, { k: mSt[1], v: store.getState(mSt[1], null) });
+    if (req.method === 'POST') {
+      const body = await readBody(req);
+      store.setState(mSt[1], body.v);
+      return send(res, 200, { ok: true });
+    }
+  }
 
   const mRel = pathname.match(/^\/api\/related\/(\d+)$/);
   if (mRel) return send(res, 200, { items: store.related(mRel[1], 8) });

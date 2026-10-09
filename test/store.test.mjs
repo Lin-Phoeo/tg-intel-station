@@ -121,6 +121,71 @@ test('聚簇：个人主页链接不参与聚合', () => {
   assert.equal(b.clusterSize, 1);
 });
 
+test('收藏：落库、带标签、可删除', () => {
+  const r = store.insertPost(rec({ msgId: 40, text: '收藏测试用帖' }));
+  assert.equal(store.isFavorite(r.id), false);
+  store.addFavorite(r.id, ['待研究', '工具'], '备注内容');
+  assert.equal(store.isFavorite(r.id), true);
+  const list = store.listFavorites();
+  const hit = list.find(x => x.id === r.id);
+  assert.ok(hit, '收藏列表应包含该帖');
+  assert.deepEqual(hit.favTags, ['待研究', '工具']);
+  assert.equal(hit.favNote, '备注内容');
+  assert.ok(hit.text.includes('收藏测试用帖'), '收藏应带完整正文');
+  assert.ok(store.favoriteIds().includes(r.id));
+  assert.equal(store.removeFavorite(r.id), true);
+  assert.equal(store.isFavorite(r.id), false);
+});
+
+test('收藏：重复添加同一帖不会产生多条', () => {
+  const r = store.insertPost(rec({ msgId: 41, text: '收藏去重用帖' }));
+  store.addFavorite(r.id, ['a']);
+  store.addFavorite(r.id, ['b']);
+  assert.equal(store.listFavorites().filter(x => x.id === r.id).length, 1);
+  assert.deepEqual(store.listFavorites().find(x => x.id === r.id).favTags, ['b']);
+  store.removeFavorite(r.id);
+});
+
+test('订阅：增删改查与命中检查', () => {
+  const id = store.upsertSubscription({ keyword: '聚簇测试', minValue: 0, tags: [] });
+  assert.ok(id > 0);
+  let subs = store.listSubscriptions();
+  assert.equal(subs.length, 1);
+  assert.equal(subs[0].enabled, true);
+
+  const hits = store.checkSubscriptions(0);
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].keyword, '聚簇测试');
+  assert.ok(hits[0].count >= 1, '应能命中此前插入的聚簇测试内容');
+
+  store.markSubscriptionHit(id, hits[0].count);
+  assert.equal(store.listSubscriptions()[0].hitCount, hits[0].count);
+
+  store.upsertSubscription({ id: id, keyword: '聚簇测试', enabled: false });
+  assert.equal(store.listSubscriptions()[0].enabled, false);
+  assert.equal(store.checkSubscriptions(0).length, 0, '暂停的订阅不参与检查');
+
+  assert.equal(store.removeSubscription(id), true);
+  assert.equal(store.listSubscriptions().length, 0);
+});
+
+test('应用状态：读写与默认值', () => {
+  assert.equal(store.getState('nope', 'def'), 'def');
+  assert.equal(store.getState('nope'), null);
+  store.setState('lastVisit', '1700000000');
+  assert.equal(store.getState('lastVisit'), '1700000000');
+  store.setState('lastVisit', '1800000000');
+  assert.equal(store.getState('lastVisit'), '1800000000');
+});
+
+test('search: since 按时间戳过滤', () => {
+  const now = Math.floor(Date.now() / 1000);
+  const old = store.search({ q: '', size: 1, since: now + 86400 });
+  assert.equal(old.total, 0, '未来时间点应无结果');
+  const past = store.search({ q: '', size: 1, since: now - 86400 * 36500 });
+  assert.ok(past.total > 0, '很久以前的时间点应包含全部');
+});
+
 test('来源登记可增删查', () => {
   store.upsertSource({ id: 'somechan', kind: 'channel', title: '测试频道' });
   assert.ok(store.listSources().some(s => s.id === 'somechan'));
