@@ -6,15 +6,52 @@ import * as ai from './ai.mjs';
 import * as store from './store.mjs';
 import { normalize, quantizeInt8, normInt8, toBuffer, topK } from '../../core/vector.mjs';
 
+// 阶段：让界面能说清楚「现在在干嘛、走到哪一步」
+export const STAGES = [
+  { key: 'preparing', label: '准备' },
+  { key: 'loading', label: '载入模型' },
+  { key: 'embedding', label: '向量化' },
+  { key: 'finalizing', label: '收尾' },
+];
+
 let state = {
   running: false, done: 0, total: 0, failed: 0,
   startedAt: null, finishedAt: null, error: null, model: '', dim: 0,
+  stage: '', stageText: '', current: '', rate: 0, eta: 0, batches: 0,
 };
+
+// 滑动窗口算实时速率：只保留最近 20 批
+const rateWin = [];
+function pushRate(done, at) {
+  rateWin.push({ done: done, at: at });
+  while (rateWin.length > 20) rateWin.shift();
+  if (rateWin.length < 2) return;
+  const a = rateWin[0], b = rateWin[rateWin.length - 1];
+  const dt = (b.at - a.at) / 1000;
+  if (dt <= 0) return;
+  const per = (b.done - a.done) / dt;          // 条/秒
+  state.rate = +per.toFixed(2);
+  state.eta = per > 0 ? Math.round((state.total - state.done) / per) : 0;
+}
+
+function setStage(key, text) {
+  state.stage = key;
+  state.stageText = text || '';
+}
 
 let vecCache = null;   // { at, items }
 
 export function getStatus() {
-  return Object.assign({}, state, { stats: store.embedStats(), cached: vecCache ? vecCache.items.length : 0 });
+  const elapsed = state.startedAt ? Math.round((Date.now() - state.startedAt) / 1000) : 0;
+  return Object.assign({}, state, {
+    stats: store.embedStats(),
+    cached: vecCache ? vecCache.items.length : 0,
+    stages: STAGES,
+    elapsed: elapsed,
+    // 前端直接可用，不必自己算
+    etaSec: state.running ? state.eta : 0,
+    finishAt: state.running && state.eta ? Date.now() + state.eta * 1000 : 0,
+  });
 }
 
 function invalidate() { vecCache = null; }
@@ -43,11 +80,14 @@ export async function buildIndex(opts) {
 
   const stats = store.embedStats();
   const todo = Math.max(0, stats.eligible - stats.indexed);
+  rateWin.length = 0;
   state = {
     running: true, done: 0, total: todo, failed: 0,
     startedAt: Date.now(), finishedAt: null, error: null,
     model: stats.model || '', dim: stats.dim || 0,
+    stage: '', stageText: '', current: '', rate: 0, eta: 0, batches: 0,
   };
+  setStage('preparing', todo > 0 ? ('待处理 ' + todo.toLocaleString() + ' 条') : '检查待处理数量');
 
   if (todo === 0) {
     state.running = false; state.finishedAt = Date.now();
@@ -61,8 +101,16 @@ export async function buildIndex(opts) {
   let batches = 0;
   try {
     while (maxBatches === 0 || batches < maxBatches) {
+      setStage('preparing', '取出下一批待处理内容');
       const rows = store.postsNeedingEmbedding(batch, minValue);
       if (!rows.length) break;
+
+      // 第一条的内容作为「现在正在处理什么」的样本，让进度看得见摸得着
+      state.current = String(rows[0].text || '').replace(/\s+/g, ' ').slice(0, 56);
+      state.batches = batches + 1;
+      setStage(batches === 0 ? 'loading' : 'embedding',
+        batches === 0 ? '首次调用向量服务（本机模型需先载入）' : ('第 ' + (batches + 1) + ' 批 · 每批 ' + batch + ' 条'));
+
       let r;
       try {
         r = await ai.embed(rows.map(x => String(x.text).slice(0, maxChars)));
@@ -98,6 +146,7 @@ export async function buildIndex(opts) {
       store.saveEmbeddings(out);
       state.done += out.length;
       batches++;
+      pushRate(state.done, Date.now());
       invalidate();
       await sleep(60);
     }
@@ -105,8 +154,11 @@ export async function buildIndex(opts) {
     state.error = String(e.message || e);
   }
 
+  setStage('done', state.error ? '已中断' : '全部完成');
   state.running = false;
   state.finishedAt = Date.now();
+  state.rate = 0;
+  state.current = '';
   return {
     ok: !state.error, done: state.done, failed: state.failed,
     model: state.model, dim: state.dim, error: state.error || null, detail: state.detail || null,
