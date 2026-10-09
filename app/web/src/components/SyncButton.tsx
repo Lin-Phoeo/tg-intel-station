@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { RefreshCw } from 'lucide-react';
 import { getSyncStatus, runSync } from '../api';
 import { timeAgo } from '../lib/util';
 
@@ -64,7 +65,7 @@ export function SyncButton({ onDone }: { onDone?: () => void }) {
         disabled={running}
         style={{ width: '100%', justifyContent: 'center', height: 38, fontWeight: 600, borderColor: running ? 'var(--border)' : 'var(--accent)', color: running ? 'var(--fg-dim)' : 'var(--accent)' }}
       >
-        {running ? '⟳ 补齐中…' : '⟳ 一键补齐'}
+        <RefreshCw size={14} strokeWidth={2} className={running ? 'spin' : ''} />{running ? '补齐中…' : '一键补齐'}
       </button>
 
       {running && (

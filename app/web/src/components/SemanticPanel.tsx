@@ -5,9 +5,9 @@ import { semanticStatus, buildSemanticIndex, clearSemanticIndex, getSettings, sa
 // 标 free 的是服务商明示免费的模型（模力方舟清单，2026-10 核对）。
 const EMBED_PRESETS = [
   // ---- 本机内置：不联网、不需要 Key、不花钱 ----
-  { label: '★ 本机内置 · bge-small-zh-v1.5（推荐·最快）', baseUrl: 'local:', model: 'Xenova/bge-small-zh-v1.5', note: '512维 · 约95MB · 13万条约15分钟' },
-  { label: '★ 本机内置 · bge-base-zh-v1.5（更准）', baseUrl: 'local:', model: 'Xenova/bge-base-zh-v1.5', note: '768维 · 约400MB' },
-  { label: '★ 本机内置 · bge-m3（多语言）', baseUrl: 'local:', model: 'Xenova/bge-m3', note: '1024维 · 约570MB' },
+  { label: '本机内置 · bge-small-zh-v1.5（推荐·最快）', baseUrl: 'local:', model: 'Xenova/bge-small-zh-v1.5', note: '512维 · 约95MB · 13万条约15分钟' },
+  { label: '本机内置 · bge-base-zh-v1.5（更准）', baseUrl: 'local:', model: 'Xenova/bge-base-zh-v1.5', note: '768维 · 约400MB' },
+  { label: '本机内置 · bge-m3（多语言）', baseUrl: 'local:', model: 'Xenova/bge-m3', note: '1024维 · 约570MB' },
   // ---- 远程免费 ----
   { label: '模力方舟 · bge-m3（推荐·均衡）', baseUrl: 'https://ai.gitee.com/v1', model: 'bge-m3', note: '1024维 · 8K · 多语言' },
   { label: '模力方舟 · Qwen3-Embedding-0.6B（轻快）', baseUrl: 'https://ai.gitee.com/v1', model: 'Qwen3-Embedding-0.6B', note: '1024维 · 32K' },

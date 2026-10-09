@@ -1,44 +1,91 @@
 @import "tailwindcss";
 
+/* ===========================================================================
+   设计令牌
+   参考基准：Linear 的设计规范（业界数据密集型应用的代表）
+   核心手法：① 表面靠 1~4 的微差表达层级，不靠留白和阴影
+             ② 文字靠白色透明度分层，不用不同色相
+             ③ 全局只留 1 个低饱和强调色
+             ④ 圆角只有三档，且每档有明确用途
+   =========================================================================== */
 :root {
-  --cyan: #22d3ee;
-  --bg: #0a0d12;
-  --bg-1: #0f141c;
-  --bg-2: #141b25;
-  --bg-3: #1c2532;
-  --border: #232d3b;
-  --border-soft: #1b2431;
-  --fg: #e9eff7;
-  --fg-dim: #96a4b6;
-  --fg-mute: #6a788a;
-  --accent: #4cc2ff;
-  --accent-soft: rgba(76,194,255,.13);
-  --green: #46d38a;
-  --amber: #f0b429;
-  --rose: #f87171;
-  --violet: #a78bfa;
-  --mark: rgba(250, 204, 21, .26);
-  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+  /* ---- 表面：相邻只差 3~4 亮度，层层微浮起 ---- */
+  --bg:   #08090a;
+  --bg-1: #0d0e10;
+  --bg-2: #121316;
+  --bg-3: #191a1e;
+  --bg-4: #1f2024;
+
+  /* ---- 边框：几乎不可见，够定义边界即可 ---- */
+  --border:      rgba(255, 255, 255, .10);
+  --border-soft: rgba(255, 255, 255, .06);
+
+  /* ---- 文字：同一色相的不同亮度，层级靠此建立 ---- */
+  --fg:      #f7f8f8;
+  --fg-dim:  #a8adb8;
+  --fg-mute: #7c818c;
+
+  /* ---- 强调：全局唯一，低饱和靛蓝 ---- */
+  --accent:      #5e6ad2;
+  --accent-fg:   #ffffff;
+  --accent-soft: rgba(94, 106, 210, .18);
+
+  /* ---- 功能色：只在真正需要区分状态时出现 ---- */
+  --green: #3fb950;
+  --amber: #d29922;
+  --rose:  #f85149;
+
+  /* ---- 兼容别名：旧的 --violet / --cyan 收归主强调，减少颜色数量 ---- */
+  --violet: var(--accent);
+  --cyan:   var(--accent);
+
+  /* ---- 圆角：只有三档 ---- */
+  --r-sm: 4px;   /* chip / badge / 内联代码 */
+  --r-md: 6px;   /* 按钮 / 输入框 */
+  --r-lg: 8px;   /* 卡片 / 弹窗 */
+
+  /* ---- 字号：九档，正文不小于 12px ---- */
+  --fs-title:  20px;
+  --fs-h:      16px;
+  --fs-card:   15px;
+  --fs-body:   14px;
+  --fs-text:   13.5px;
+  --fs-btn:    13px;
+  --fs-meta:   12px;
+  --fs-micro:  11px;
+
+  --mark: rgba(94, 106, 210, .30);
+  --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -12px rgba(0, 0, 0, .6);
+  --ring: 0 0 0 1px rgba(255, 255, 255, .10);
   color-scheme: dark;
 }
+
 [data-theme="light"] {
-  --bg: #f4f6f9;
+  /* 浅色下反转：面板比页面亮 */
+  --bg:   #f7f8f9;
   --bg-1: #ffffff;
   --bg-2: #ffffff;
-  --bg-3: #eef1f6;
-  --border: #dfe5ee;
-  --border-soft: #eaeef4;
-  --fg: #121a26;
-  --fg-dim: #5a6a7e;
-  --fg-mute: #8a97a8;
-  --accent: #0b7fd4;
-  --accent-soft: rgba(11,127,212,.10);
-  --green: #12a05c;
-  --amber: #b7791f;
-  --rose: #d64545;
-  --violet: #7c5cd6;
-  --mark: rgba(250, 204, 21, .45);
-  --shadow: 0 1px 2px rgba(16,24,40,.06), 0 12px 28px -16px rgba(16,24,40,.28);
+  --bg-3: #f0f1f3;
+  --bg-4: #e8eaed;
+
+  --border:      rgba(0, 0, 0, .11);
+  --border-soft: rgba(0, 0, 0, .06);
+
+  --fg:      #12141a;
+  --fg-dim:  #55596a;
+  --fg-mute: #858a99;
+
+  --accent:      #5e6ad2;
+  --accent-fg:   #ffffff;
+  --accent-soft: rgba(94, 106, 210, .12);
+
+  --green: #1a7f37;
+  --amber: #9a6700;
+  --rose:  #cf222e;
+
+  --mark: rgba(94, 106, 210, .22);
+  --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 12px 28px -16px rgba(16, 24, 40, .28);
+  --ring: 0 0 0 1px rgba(0, 0, 0, .10);
   color-scheme: light;
 }
 
@@ -49,23 +96,35 @@ body {
   background: var(--bg);
   color: var(--fg);
   font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
-  font-size: 15px;
-  line-height: 1.7;
+  font-size: var(--fs-body);
+  line-height: 1.65;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
-[data-size="s"] { font-size: 13.5px; }
-[data-size="l"] { font-size: 16.5px; }
+[data-size="s"] { font-size: 13px; }
+[data-size="l"] { font-size: 16px; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .spin { animation: none; }
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-sm); }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; border: 2px solid transparent; background-clip: content-box; }
-::-webkit-scrollbar-thumb:hover { background: var(--fg-mute); background-clip: content-box; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,.10); border-radius: 8px; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.20); background-clip: content-box; }
+[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0,0,0,.14); background-clip: content-box; }
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,.26); background-clip: content-box; }
 
 .surface { background: var(--bg-1); }
 .card {
   background: var(--bg-2);
   border: 1px solid var(--border-soft);
-  border-radius: 14px;
+  border-radius: var(--r-lg);
   transition: border-color .15s, background .15s, box-shadow .15s, transform .15s;
 }
 .card:hover { border-color: var(--border); background: var(--bg-3); }
@@ -78,7 +137,7 @@ body {
 .chip {
   display: inline-flex; align-items: center; gap: 5px;
   border: 1px solid var(--border); background: var(--bg-2); color: var(--fg-dim);
-  border-radius: 999px; padding: 3px 11px; font-size: 12.5px; line-height: 1.6;
+  border-radius: 999px; padding: 2px 10px; font-size: var(--fs-meta); line-height: 1.6;
   cursor: pointer; user-select: none; transition: all .13s; white-space: nowrap;
 }
 .chip:hover { color: var(--fg); border-color: var(--fg-mute); }
@@ -88,13 +147,13 @@ body {
 
 .badge {
   display: inline-flex; align-items: center; font-size: 11.5px; font-weight: 600;
-  padding: 1.5px 8px; border-radius: 6px; white-space: nowrap;
+  padding: 1.5px 7px; border-radius: var(--r-sm); white-space: nowrap;
 }
 
 .btn {
-  display: inline-flex; align-items: center; gap: 6px; border-radius: 9px;
+  display: inline-flex; align-items: center; gap: 6px; border-radius: var(--r-md);
   border: 1px solid var(--border); background: var(--bg-2); color: var(--fg);
-  padding: 6px 12px; font-size: 13px; cursor: pointer; transition: all .13s;
+  padding: 6px 12px; font-size: var(--fs-btn); cursor: pointer; transition: background .15s, border-color .15s, color .15s;
 }
 .btn:hover { background: var(--bg-3); border-color: var(--fg-mute); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #04121c; font-weight: 600; }

@@ -1,3 +1,4 @@
+import { Star } from 'lucide-react';
 import { Post } from '../api';
 import { catColor, highlight, splitTitleBody, timeAgo, fmtNum, cx } from '../lib/util';
 
@@ -9,7 +10,7 @@ export function PostCard({ post, active, terms, onOpen }: { post: Post; active: 
     <article className={cx('card', 'anim-in', active && 'active')} style={{ padding: '15px 17px', cursor: 'pointer' }} onClick={() => onOpen(post)}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 7 }}>
         <span className="badge" style={{ background: 'color-mix(in srgb, ' + c + ' 16%, transparent)', color: c }}>{post.category}</span>
-        {post.value >= 6 && <span className="badge" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}>{'★ ' + post.value.toFixed(1)}</span>}
+        {post.value >= 6 && <span className="badge" title={'价值分 ' + post.value.toFixed(1)} style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}><Star size={9} strokeWidth={2.5} fill="currentColor" />{post.value.toFixed(1)}</span>}
         {isFree && <span className="badge" style={{ background: 'color-mix(in srgb, var(--green) 15%, transparent)', color: 'var(--green)' }}>羊毛</span>}
         {post.clusterSize > 1 && <span className="badge" title="同一事件被多个来源发布，已合并显示" style={{ background: 'var(--bg-3)', color: 'var(--fg-dim)' }}>{post.clusterSize + ' 个来源'}</span>}
         <span style={{ color: 'var(--fg-mute)', fontSize: 12.5 }}>{post.date}</span>

@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Zap, Radio, Star, Sparkles, Link2, Bell, Search, X, Settings, FileText,
+  Sun, Moon, Type, PanelRightClose,
+} from 'lucide-react';
+import {
   search as searchApi, facets as facetsApi, getPost, related as relApi, getSettings, getClusterMembers,
   listFavorites, addFavorite, removeFavorite, getState, setState, checkSubscriptions, semanticQuery,
 } from './api';
@@ -304,21 +308,21 @@ export default function App() {
       <aside className="surface" style={{ width: 248, flexShrink: 0, borderRight: '1px solid var(--border-soft)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ padding: '16px 16px 12px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-            <div style={{ width: 30, height: 30, borderRadius: 9, background: 'linear-gradient(135deg, var(--accent), var(--violet))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15 }}>⚡</div>
+            <div style={{ width: 28, height: 28, borderRadius: 'var(--r-md)', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Zap size={15} color="#fff" strokeWidth={2} /></div>
             <div>
-              <div style={{ fontWeight: 750, fontSize: 15, letterSpacing: '.02em' }}>电报情报站</div>
-              <div style={{ fontSize: 11, color: 'var(--fg-mute)' }}>{'技术线报 · 项目雷达'}</div>
+              <div style={{ fontWeight: 600, fontSize: 'var(--fs-card)', letterSpacing: '.01em' }}>电报情报站</div>
+              <div style={{ fontSize: 'var(--fs-micro)', color: 'var(--fg-mute)' }}>{'技术线报 · 项目雷达'}</div>
             </div>
           </div>
         </div>
 
         <div style={{ padding: '4px 10px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <button className="btn ghost" style={{ justifyContent: 'flex-start', background: view === 'feed' ? 'var(--bg-3)' : 'transparent', color: view === 'feed' ? 'var(--fg)' : 'var(--fg-dim)' }} onClick={() => { setView('feed'); setCat(''); setTags([]); setChannel(''); setQ(''); }}>📡 全部信息流</button>
-          <button className="btn ghost" style={{ justifyContent: 'flex-start', background: view === 'favs' ? 'var(--bg-3)' : 'transparent', color: view === 'favs' ? 'var(--fg)' : 'var(--fg-dim)' }} onClick={showFavs}>{'★ 我的收藏 (' + favIds.length + ')'}</button>
-          <button className="btn ghost" style={{ justifyContent: 'flex-start' }} onClick={() => { setPanel('chat'); setRightOpen(true); }}>✨ AI 情报助手</button>
-          <button className="btn ghost" style={{ justifyContent: 'flex-start' }} onClick={() => setAddSourceOpen(true)}>🔗 按链接抓取</button>
+          <button className="btn ghost" style={{ justifyContent: 'flex-start', background: view === 'feed' ? 'var(--bg-3)' : 'transparent', color: view === 'feed' ? 'var(--fg)' : 'var(--fg-dim)' }} onClick={() => { setView('feed'); setCat(''); setTags([]); setChannel(''); setQ(''); }}><Radio size={15} strokeWidth={1.75} /> 全部信息流</button>
+          <button className="btn ghost" style={{ justifyContent: 'flex-start', background: view === 'favs' ? 'var(--bg-3)' : 'transparent', color: view === 'favs' ? 'var(--fg)' : 'var(--fg-dim)' }} onClick={showFavs}><Star size={15} strokeWidth={1.75} />{'我的收藏' + (favIds.length ? ' (' + favIds.length + ')' : '')}</button>
+          <button className="btn ghost" style={{ justifyContent: 'flex-start' }} onClick={() => { setPanel('chat'); setRightOpen(true); }}><Sparkles size={15} strokeWidth={1.75} /> AI 情报助手</button>
+          <button className="btn ghost" style={{ justifyContent: 'flex-start' }} onClick={() => setAddSourceOpen(true)}><Link2 size={15} strokeWidth={1.75} /> 按链接抓取</button>
           <button className="btn ghost" style={{ justifyContent: 'flex-start' }} onClick={() => setSubsOpen(true)}>
-            {'🔔 关键词订阅'}{(topKw.length ? ' · ' + topKw.length : '')}
+            <Bell size={15} strokeWidth={1.75} />{'关键词订阅'}{(topKw.length ? ' · ' + topKw.length : '')}
           </button>
         </div>
 
@@ -355,9 +359,12 @@ export default function App() {
         </div>
 
         <div style={{ borderTop: '1px solid var(--border-soft)', padding: 10, display: 'flex', gap: 6 }}>
-          <button className="btn ghost" style={{ flex: 1 }} onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? '☀ 浅色' : '☾ 深色'}</button>
-          <button className="btn ghost" title="字号" onClick={() => setSize(size === 'm' ? 'l' : size === 'l' ? 's' : 'm')}>{'A' + (size === 's' ? '-' : size === 'l' ? '+' : '')}</button>
-          <button className="btn ghost" onClick={() => setSettingsOpen(true)}>⚙</button>
+          <button className="btn ghost" style={{ flex: 1 }} onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
+            {theme === 'dark' ? <Sun size={14} strokeWidth={1.75} /> : <Moon size={14} strokeWidth={1.75} />}
+            {theme === 'dark' ? '浅色' : '深色'}
+          </button>
+          <button className="btn ghost" title="字号" onClick={() => setSize(size === 'm' ? 'l' : size === 'l' ? 's' : 'm')}><Type size={14} strokeWidth={1.75} /></button>
+          <button className="btn ghost" title="设置" onClick={() => setSettingsOpen(true)}><Settings size={15} strokeWidth={1.75} /></button>
         </div>
       </aside>
 
@@ -367,8 +374,8 @@ export default function App() {
           <div style={{ display: 'flex', gap: 9, alignItems: 'center', flexWrap: 'wrap' }}>
             <div style={{ position: 'relative', flex: 1, minWidth: 260 }}>
               <input ref={searchRef} value={q} onChange={e => setQ(e.target.value)} placeholder="搜索 85 万条帖子：免费 VPS、GitHub、AI 中转站、副业…  （按 / 聚焦）" style={{ width: '100%', paddingLeft: 34, height: 38 }} />
-              <span style={{ position: 'absolute', left: 12, top: 9, color: 'var(--fg-mute)' }}>🔍</span>
-              {q && <button className="btn ghost" style={{ position: 'absolute', right: 6, top: 5, padding: '3px 8px' }} onClick={() => setQ('')}>✕</button>}
+              <span style={{ position: 'absolute', left: 11, top: 11, color: 'var(--fg-mute)', pointerEvents: 'none' }}><Search size={15} strokeWidth={1.75} /></span>
+              {q && <button className="btn ghost" style={{ position: 'absolute', right: 5, top: 6, padding: '4px 7px' }} onClick={() => setQ('')} title="清空"><X size={14} strokeWidth={2} /></button>}
             </div>
             <select value={sort} onChange={e => setSort(e.target.value)} style={{ height: 38 }}>{SORTS.map(s => <option key={s.v} value={s.v}>{s.label}</option>)}</select>
             <select value={days} onChange={e => setDays(Number(e.target.value))} style={{ height: 38 }}>{DAYS.map(d => <option key={d.v} value={d.v}>{d.label}</option>)}</select>
@@ -377,7 +384,7 @@ export default function App() {
                 {providers.map(p => <option key={p.id} value={p.id}>{(p.hasKey ? '● ' : '○ ') + p.name}</option>)}
               </select>
             )}
-            <button className={'btn' + (rightOpen && panel === 'chat' ? ' primary' : '')} style={{ height: 38 }} onClick={() => { setPanel('chat'); setRightOpen(true); }}>✨ AI 助手</button>
+            <button className={'btn' + (rightOpen && panel === 'chat' ? ' primary' : '')} style={{ height: 38 }} onClick={() => { setPanel('chat'); setRightOpen(true); }}><Sparkles size={14} strokeWidth={1.75} /> AI 助手</button>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 9, flexWrap: 'wrap' }}>
@@ -396,9 +403,9 @@ export default function App() {
             </span>
             {(cat || channel || tags.length > 0 || dq) && (
               <span style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                {cat && <span className="chip on" onClick={() => setCat('')}>{cat + ' ✕'}</span>}
-                {channel && <span className="chip on" onClick={() => setChannel('')}>{'@' + channel + ' ✕'}</span>}
-                {tags.map(t => <span key={t} className="chip on" onClick={() => setTags(prev => prev.filter(x => x !== t))}>{t + ' ✕'}</span>)}
+                {cat && <span className="chip on" onClick={() => setCat('')}>{cat}<X size={11} strokeWidth={2.5} /></span>}
+                {channel && <span className="chip on" onClick={() => setChannel('')}>{'@' + channel}<X size={11} strokeWidth={2.5} /></span>}
+                {tags.map(t => <span key={t} className="chip on" onClick={() => setTags(prev => prev.filter(x => x !== t))}>{t}<X size={11} strokeWidth={2.5} /></span>)}
                 <button className="btn ghost" style={{ padding: '2px 8px', fontSize: 12 }} onClick={() => { setCat(''); setChannel(''); setTags([]); setQ(''); }}>清空筛选</button>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--fg-dim)', cursor: 'pointer' }} title="同一事件被多个来源发布时只显示一条">
                   <input type="checkbox" checked={collapse} onChange={e => setCollapse(e.target.checked)} style={{ width: 'auto', margin: 0 }} />
@@ -422,7 +429,7 @@ export default function App() {
         <div ref={scrollRef} onScroll={e => { scrollPos.current[view] = (e.target as HTMLElement).scrollTop; }}
           style={{ flex: 1, overflowY: 'auto', padding: '16px 18px 60px' }}>
           {view === 'favs' && favPosts.length === 0 && (
-            <div style={{ textAlign: 'center', color: 'var(--fg-mute)', paddingTop: 80 }}>还没有收藏。点击任意条目右上角的 ☆ 收藏。</div>
+            <div style={{ textAlign: 'center', color: 'var(--fg-mute)', paddingTop: 80 }}>还没有收藏。点击任意条目右上角的星标即可收藏。</div>
           )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 900, margin: '0 auto' }}>
             {shown.map((p, i) => (
@@ -445,10 +452,10 @@ export default function App() {
       {rightOpen && (
         <aside className="surface" style={{ width: 500, flexShrink: 0, borderLeft: '1px solid var(--border-soft)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '8px 10px', borderBottom: '1px solid var(--border-soft)' }}>
-            <button className={'btn ghost' + (panel === 'chat' ? '' : '')} style={{ background: panel === 'chat' ? 'var(--bg-3)' : 'transparent', color: panel === 'chat' ? 'var(--fg)' : 'var(--fg-dim)' }} onClick={() => setPanel('chat')}>✨ AI 助手</button>
-            <button className="btn ghost" style={{ background: panel === 'detail' ? 'var(--bg-3)' : 'transparent', color: panel === 'detail' ? 'var(--fg)' : 'var(--fg-dim)' }} onClick={() => setPanel('detail')} disabled={!sel}>📄 详情</button>
+            <button className={'btn ghost' + (panel === 'chat' ? '' : '')} style={{ background: panel === 'chat' ? 'var(--bg-3)' : 'transparent', color: panel === 'chat' ? 'var(--fg)' : 'var(--fg-dim)' }} onClick={() => setPanel('chat')}><Sparkles size={14} strokeWidth={1.75} /> AI 助手</button>
+            <button className="btn ghost" style={{ background: panel === 'detail' ? 'var(--bg-3)' : 'transparent', color: panel === 'detail' ? 'var(--fg)' : 'var(--fg-dim)' }} onClick={() => setPanel('detail')} disabled={!sel}><FileText size={14} strokeWidth={1.75} /> 详情</button>
             <span style={{ flex: 1 }} />
-            <button className="btn ghost" onClick={() => setRightOpen(false)} title="收起">✕</button>
+            <button className="btn ghost" onClick={() => setRightOpen(false)} title="收起"><PanelRightClose size={15} strokeWidth={1.75} /></button>
           </div>
           <div style={{ flex: 1, overflow: 'hidden' }}>
             {panel === 'chat'

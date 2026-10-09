@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { semanticStatus, buildSemanticIndex, getSyncStatus } from '../api';
 
 // ---------- 小工具 ----------
@@ -127,7 +128,7 @@ export function TaskProgress() {
             <span style={{ fontSize: 12, fontWeight: 750, fontVariantNumeric: 'tabular-nums', color: building ? 'var(--violet)' : (pending ? 'var(--amber)' : 'var(--cyan)') }}>
               {building || pending ? pct.toFixed(1) + '%' : (sync && sync.total ? Math.round((n(sync.done) / n(sync.total)) * 100) + '%' : '')}
             </span>
-            <span style={{ fontSize: 9, color: 'var(--fg-mute)', marginLeft: 1 }}>▾</span>
+            <ChevronDown size={12} strokeWidth={2} style={{ color: 'var(--fg-mute)', marginLeft: 1 }} />
           </div>
           <div style={{ height: 3, background: 'var(--bg-3)', borderRadius: 2, overflow: 'hidden', margin: '6px 0 5px' }}>
             <div style={{
@@ -169,7 +170,7 @@ export function TaskProgress() {
             color: building ? 'var(--violet)' : (pending ? 'var(--amber)' : 'var(--green)'),
           }}>{building ? '进行中' : (pending ? '待继续' : '进行中')}</span>
           <button className="btn ghost" title="收起" onClick={toggle}
-            style={{ padding: '0 5px', fontSize: 11, lineHeight: 1.4, color: 'var(--fg-mute)' }}>▴</button>
+            style={{ padding: '0 5px', lineHeight: 1.4, color: 'var(--fg-mute)' }}><ChevronUp size={13} strokeWidth={2} /></button>
         </div>
 
         {/* 向量索引 */}

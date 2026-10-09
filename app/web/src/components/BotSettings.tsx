@@ -180,7 +180,7 @@ export function BotSettings() {
         <div style={{ fontSize: 12.5, color: 'var(--fg-dim)', lineHeight: 1.85, marginBottom: 10 }}>
           Telegram 的群没有公开预览页，所以之前抓不到群（比如 @qiuyueww）。但机器人进群后能收到消息 —— 开启后，群里聊到的工具/羊毛会自动分类、去重，并进入同一个检索库，也能被 AI 问答检索到。
           <br />
-          ⚠️ 要让机器人读到<b>普通消息</b>（而不只是命令），二选一：把机器人<b>设为群管理员</b>（最简单）；或在 @BotFather 里 <code>/setprivacy</code> 关闭隐私模式后，把机器人移出群再重新拉进来。
+          要让机器人读到<b>普通消息</b>（而不只是命令），二选一：把机器人<b>设为群管理员</b>（最简单）；或在 @BotFather 里 <code>/setprivacy</code> 关闭隐私模式后，把机器人移出群再重新拉进来。
         </div>
         <div style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13.5 }}>

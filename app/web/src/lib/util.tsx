@@ -2,16 +2,18 @@ import { ReactNode } from 'react';
 
 export function cx(...parts: any[]) { return parts.filter(Boolean).join(' '); }
 
+// 分类色：大幅降饱和。它们只是"哪个分类"的微弱提示，
+// 不该和正文、强调色抢注意力。色相保留以维持辨识度。
 export const CAT_COLOR: Record<string, string> = {
-  '羊毛优惠': 'var(--green)',
-  '项目副业': 'var(--amber)',
-  '实用工具': 'var(--accent)',
-  '开源项目': 'var(--violet)',
-  'AI与科技': '#22d3ee',
-  '服务器网络': '#f472b6',
-  '账号会员': '#eab308',
-  '学习资源': '#2dd4bf',
-  '数码硬件': '#fb923c',
+  '羊毛优惠': '#4f9e6a',
+  '项目副业': '#a8823f',
+  '实用工具': '#5e6ad2',
+  '开源项目': '#7a6bb5',
+  'AI与科技': '#4a8fa8',
+  '服务器网络': '#a06a8a',
+  '账号会员': '#9a8a45',
+  '学习资源': '#4f9690',
+  '数码硬件': '#a8734a',
   '资讯热点': 'var(--fg-mute)',
   '其他': 'var(--fg-mute)',
 };

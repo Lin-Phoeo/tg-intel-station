@@ -1,3 +1,4 @@
+import { Star } from 'lucide-react';
 import { Post } from '../api';
 import { catColor, timeAgo, fmtNum } from '../lib/util';
 
@@ -13,7 +14,9 @@ export function Detail({ post, rel, cluster, fav, onFav, onOpen, onAsk }: {
         <span className="badge" style={{ background: 'color-mix(in srgb, ' + c + ' 16%, transparent)', color: c }}>{post.category}</span>
         <span style={{ color: 'var(--fg-mute)', fontSize: 12.5 }}>{post.date} · {timeAgo(post.date)}</span>
         <span style={{ flex: 1 }} />
-        <button className="btn ghost" title="收藏" onClick={() => onFav(post)} style={{ color: fav ? 'var(--amber)' : 'var(--fg-dim)' }}>{fav ? '★ 已收藏' : '☆ 收藏'}</button>
+        <button className="btn ghost" title={fav ? '取消收藏' : '收藏'} onClick={() => onFav(post)} style={{ color: fav ? 'var(--amber)' : 'var(--fg-dim)' }}>
+          <Star size={14} strokeWidth={1.75} fill={fav ? 'currentColor' : 'none'} />{fav ? '已收藏' : '收藏'}
+        </button>
       </div>
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
