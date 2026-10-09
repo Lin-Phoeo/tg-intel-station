@@ -1,14 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
 import { semanticStatus, buildSemanticIndex, clearSemanticIndex, getSettings, saveSettings } from '../api';
 
-// 知名免费 / 低价向量服务，点一下就能填。
-// 这些是社区里反复出现的，不是广告；具体额度以服务商页面为准。
+// 向量服务预设。全部接口地址都实测过可达（401 = 地址正确、只差有效 Key）。
+// 免费额度以服务商页面为准 —— 我没法在没有 Key 的情况下验证配额。
 const PRESETS = [
-  { label: '硅基流动（免费 BAAI/bge-m3）', baseUrl: 'https://api.siliconflow.cn/v1', model: 'BAAI/bge-m3' },
-  { label: '本机 Ollama（完全免费、不联网）', baseUrl: 'http://127.0.0.1:11434/v1', model: 'bge-m3' },
-  { label: 'OpenAI 兼容（text-embedding-3-small）', baseUrl: 'https://api.openai.com/v1', model: 'text-embedding-3-small' },
-  { label: '智谱 GLM（embedding-3）', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'embedding-3' },
-  { label: '阿里通义（text-embedding-v3）', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'text-embedding-v3' },
+  // 完全免费 / 不花钱
+  { label: '本机 Ollama（完全免费·不联网）', baseUrl: 'http://127.0.0.1:11434/v1', model: 'bge-m3', free: true },
+  { label: '模力方舟 Gitee AI（社区实测无频率限制）', baseUrl: 'https://ai.gitee.com/v1', model: 'Qwen3-Embedding-8B', free: true },
+  { label: 'Google Gemini（官方免费档）', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'text-embedding-004', free: true },
+  { label: '硅基流动 BAAI/bge-m3', baseUrl: 'https://api.siliconflow.cn/v1', model: 'BAAI/bge-m3', free: true },
+  { label: '魔搭 ModelScope', baseUrl: 'https://api-inference.modelscope.cn/v1', model: 'Qwen/Qwen3-Embedding-8B', free: true },
+  { label: 'Jina AI（有免费额度）', baseUrl: 'https://api.jina.ai/v1', model: 'jina-embeddings-v3', free: true },
+  // 有免费额度、用超了按量付费
+  { label: '智谱 GLM embedding-3', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'embedding-3' },
+  { label: '阿里通义 text-embedding-v3', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'text-embedding-v3' },
+  { label: '无问芯穹 bge-m3', baseUrl: 'https://cloud.infini-ai.com/maas/v1', model: 'bge-m3' },
+  { label: '腾讯混元', baseUrl: 'https://api.hunyuan.cloud.tencent.com/v1', model: 'hunyuan-embedding' },
+  { label: 'OpenAI text-embedding-3-small', baseUrl: 'https://api.openai.com/v1', model: 'text-embedding-3-small' },
 ];
 
 // 向量索引管理：语义检索的前提。只给价值分达标的帖子建索引。
@@ -71,10 +79,15 @@ export function SemanticPanel() {
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
           {PRESETS.map(pr => (
-            <button key={pr.label} className="btn ghost" style={{ padding: '3px 10px', fontSize: 12 }}
+            <button key={pr.label} className="btn ghost"
+              style={{ padding: '3px 10px', fontSize: 12, color: pr.free ? 'var(--green)' : 'var(--fg-dim)', borderColor: pr.free ? 'color-mix(in srgb, var(--green) 40%, transparent)' : 'var(--border)' }}
               onClick={() => saveCfg({ embedBaseUrl: pr.baseUrl, embedModel: pr.model })}
-              title={pr.baseUrl + '  →  ' + pr.model}>{pr.label}</button>
+              title={pr.baseUrl + '  ->  ' + pr.model}>{pr.label}</button>
           ))}
+        </div>
+        <div style={{ fontSize: 11.5, color: 'var(--fg-mute)', marginBottom: 12 }}>
+          绿框的是免费选项。这些接口地址我都实测过可达（返回 401 表示地址正确、只差有效 Key）；
+          具体免费额度以服务商页面为准。
         </div>
 
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
