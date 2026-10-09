@@ -210,6 +210,29 @@ body {
 .amsg.err { background: color-mix(in srgb, var(--rose) 13%, transparent); color: var(--rose); }
 .amsg.info { background: var(--bg-3); color: var(--fg-dim); }
 
+/* ---------- 高分内容提醒 ---------- */
+.hlbar {
+  display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+  padding: 8px 14px; flex-shrink: 0;
+  background: color-mix(in srgb, var(--amber) 9%, var(--bg-1));
+  border-bottom: 1px solid color-mix(in srgb, var(--amber) 28%, transparent);
+}
+.hl-star { color: var(--amber); font-size: 13px; }
+.hl-title { font-size: var(--fs-meta); font-weight: 650; color: var(--amber); white-space: nowrap; }
+.hl-list { display: flex; gap: 6px; flex-wrap: wrap; }
+.hl-item {
+  display: inline-flex; align-items: center; gap: 5px; max-width: 260px;
+  padding: 2px 8px; border-radius: var(--r-sm); cursor: pointer;
+  background: var(--bg-2); border: 1px solid var(--border-soft);
+  transition: background-color .13s, border-color .13s;
+}
+.hl-item:hover { background: var(--bg-3); border-color: var(--border); }
+.hl-val { font-size: var(--fs-micro); font-weight: 700; color: var(--amber); font-variant-numeric: tabular-nums; }
+.hl-text {
+  font-size: var(--fs-micro); color: var(--fg-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
 /* ---------- 顶部任务进度 ---------- */
 .topbar-prog {
   position: relative; border-bottom: 1px solid var(--border-soft);

@@ -376,7 +376,7 @@ export default function App() {
       {/* ---------- main ---------- */}
       <main style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <h1 className="sr-only">电报情报站 · 技术线报与项目雷达</h1>
-        <TopProgress />
+        <TopProgress onOpenPost={id => openById(id)} />
         <div className="surface" style={{ borderBottom: '1px solid var(--border-soft)', padding: '12px 16px 0' }}>
           <div style={{ display: 'flex', gap: 9, alignItems: 'center', flexWrap: 'wrap' }}>
             <div style={{ position: 'relative', flex: 1, minWidth: 260 }}>

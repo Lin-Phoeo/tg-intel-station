@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { chat as chatApi, Post } from '../api';
+import { chat as chatApi, getState, setState, Post } from '../api';
 import { Markdown } from './Markdown';
 import { catColor } from '../lib/util';
 
@@ -18,11 +18,52 @@ export function ChatPanel({ filters, pendingPost, onConsumePending, onOpenPost }
   const [noKey, setNoKey] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const [restored, setRestored] = useState(false);
+
+  // 会话持久化：存到服务端的 app_state（跟着数据库走），
+  // 换浏览器、清缓存都不会丢。之前刷新一下对话就没了。
+  // 只保留最近 30 条，并把引用原文截断，避免这条记录越滚越大。
+  const CHAT_KEY = 'chatHistory';
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await getState(CHAT_KEY);
+        if (r.v) {
+          const arr = JSON.parse(r.v);
+          if (Array.isArray(arr) && arr.length) setMsgs(arr);
+        }
+      } catch (e) {}
+      setRestored(true);
+    })();
+  }, []);
+
+  function persistChat(list: Msg[]) {
+    try {
+      const slim = list.slice(-30).map(m => ({
+        role: m.role,
+        content: String(m.content || '').slice(0, 20000),
+        error: m.error || undefined,
+        sources: (m.sources || []).slice(0, 12).map(s => ({
+          id: s.id, date: s.date, channel: s.channel, category: s.category,
+          value: s.value, url: s.url, text: String(s.text || '').slice(0, 120),
+        })),
+      }));
+      setState(CHAT_KEY, JSON.stringify(slim)).catch(() => {});
+    } catch (e) {}
+  }
 
   useEffect(() => {
     const el = boxRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [msgs, stage]);
+
+  // 流式输出时不要每帧都写盘：只在空闲且非空时落库
+  useEffect(() => {
+    if (!restored || busy) return;
+    if (!msgs.length) return;
+    const t = setTimeout(() => persistChat(msgs), 800);
+    return () => clearTimeout(t);
+  }, [msgs, busy, restored]);
 
   useEffect(() => {
     if (pendingPost) {
@@ -61,6 +102,16 @@ export function ChatPanel({ filters, pendingPost, onConsumePending, onOpenPost }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div ref={boxRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 18px' }}>
+        {msgs.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <span style={{ fontSize: 'var(--fs-micro)', color: 'var(--fg-mute)' }}>
+              共 {msgs.length} 轮，已自动保存
+            </span>
+            <span style={{ flex: 1 }} />
+            <button className="btn ghost" style={{ padding: '2px 9px', fontSize: 'var(--fs-meta)' }}
+              onClick={() => { setMsgs([]); persistChat([]); }}>清空对话</button>
+          </div>
+        )}
         {msgs.length === 0 && (
           <div style={{ paddingTop: 10 }}>
             <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 6 }}>AI 情报助手</div>

@@ -20,16 +20,26 @@ const n = (v: any) => Number(v || 0);
 // 顶部任务进度条。
 // 放在主内容区最上方而不是侧栏：始终可见，但不占侧栏的垂直空间，
 // 也不会把分类列表挤下去。点击展开细节。
-export function TopProgress() {
+export function TopProgress({ onOpenPost }: { onOpenPost?: (id: number) => void }) {
   const [sem, setSem] = useState<any>(null);
   const [sync, setSync] = useState<any>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  // 本次同步挑出的高分内容。真正值钱的帖子很少，与其让用户翻列表，不如直接端到眼前。
+  const [highlights, setHighlights] = useState<any[]>([]);
+  const [hlClosed, setHlClosed] = useState(false);
   const timer = useRef<any>(null);
 
   async function tick() {
     try { setSem(await semanticStatus()); } catch (e) {}
-    try { setSync(await getSyncStatus()); } catch (e) {}
+    try {
+      const s = await getSyncStatus();
+      setSync(s);
+      // 同步刚结束时把高分内容捞出来提示一次（跑完就不再重复弹）
+      if (s && !s.running && Array.isArray(s.highlights) && s.highlights.length) {
+        setHighlights(s.highlights);
+      }
+    } catch (e) {}
   }
   useEffect(() => {
     tick();
@@ -52,10 +62,34 @@ export function TopProgress() {
   if (!building && !syncing && !pending) return null;
 
   const pct = eligible ? Math.min(100, (indexed / eligible) * 100) : 0;
+  const showHl = highlights.length > 0 && !hlClosed;
+  const clearHl = () => { setHighlights([]); setHlClosed(true); };
   const stages = (sem && sem.stages) || [];
   const curIdx = stages.findIndex((s: any) => s.key === sem.stage);
 
   return (
+    <>
+    {showHl && (
+      <div className="hlbar">
+        <span className="hl-star">★</span>
+        <span className="hl-title">本次同步发现 {highlights.length} 条高分内容</span>
+        <div className="hl-list">
+          {highlights.slice(0, 3).map(h => (
+            <button key={h.id} className="hl-item" title={h.title}
+              onClick={() => { if (onOpenPost) onOpenPost(h.id); clearHl(); }}>
+              <span className="hl-val">{h.value.toFixed(1)}</span>
+              <span className="hl-text">{h.title || '（无标题）'}</span>
+            </button>
+          ))}
+        </div>
+        {highlights.length > 3 && onOpenPost && (
+          <button className="btn ghost" style={{ padding: '2px 8px', fontSize: 'var(--fs-micro)' }}
+            onClick={() => { onOpenPost(highlights[0].id); clearHl(); }}>查看全部</button>
+        )}
+        <span style={{ flex: 1 }} />
+        <button className="btn ghost" style={{ padding: '2px 7px', fontSize: 'var(--fs-micro)' }} onClick={clearHl} aria-label="忽略">✕</button>
+      </div>
+    )}
     <div className={'topbar-prog' + (open ? ' open' : '') + (building || syncing ? ' live' : '')} onClick={() => setOpen(o => !o)}>
       <div className="tpp-line" />
       <div className="tpp-head">
@@ -135,5 +169,6 @@ export function TopProgress() {
         </div>
       )}
     </div>
+    </>
   );
 }
