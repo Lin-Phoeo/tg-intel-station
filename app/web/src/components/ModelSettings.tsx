@@ -192,12 +192,16 @@ export function ModelSettings({ onActiveChange }: { onActiveChange?: (id: string
         <details style={{ marginBottom: 14 }}>
           <summary style={{ fontSize: 'var(--fs-meta)', color: 'var(--fg-dim)', cursor: 'pointer', padding: '4px 0' }}>高级选项</summary>
           <div style={{ paddingTop: 10 }}>
-            <label style={lbl}>鉴权方式</label>
+            <label style={lbl}>协议与鉴权<span style={{ opacity: .75 }}> · 选错了也没关系，会自动尝试另一种</span></label>
             <select value={p.apiFormat || 'openai'} onChange={e => upd('apiFormat', e.target.value)} style={box}>
-              <option value="openai">Authorization: Bearer（绝大多数）</option>
-              <option value="anthropic">x-api-key（Anthropic 风格中转）</option>
-              <option value="google">x-goog-api-key（Google 风格）</option>
+              <option value="openai">OpenAI 兼容（Bearer + /chat/completions）</option>
+              <option value="anthropic">Anthropic（x-api-key + /messages）· Claude 系中转站</option>
+              <option value="google">Google（x-goog-api-key）</option>
             </select>
+            <div style={{ fontSize: 'var(--fs-micro)', color: 'var(--fg-mute)', marginTop: -6, marginBottom: 12, lineHeight: 1.6 }}>
+              很多 Claude 中转站只开 Anthropic 端点，用 OpenAI 端点打过去会被拦成 403 网页。
+              这里选的是**首选**，失败会自动换另一种协议重试，所以不确定的话保持默认即可。
+            </div>
             <label style={lbl}>模型接口地址<span style={{ opacity: .75 }}> · 可选，自动识别失败时填</span></label>
             <input value={p.modelsUrl || ''} onChange={e => upd('modelsUrl', e.target.value)} placeholder="https://xxx.com/v1/models" style={box} spellCheck={false} />
             <label style={lbl}>自定义请求头<span style={{ opacity: .75 }}> · 可选，JSON</span></label>
