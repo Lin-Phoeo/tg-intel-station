@@ -8,6 +8,7 @@ import * as ai from './ai.mjs';
 import * as bot from './bot.mjs';
 import * as source from './source.mjs';
 import * as sync from './sync.mjs';
+import * as backup from './backup.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const DIST = path.join(ROOT, 'app', 'web', 'dist');
@@ -49,8 +50,29 @@ function filtersFrom(q) {
   return { category: q.category || '', channel: q.channel || '', from: q.from || '', to: q.to || '', tags: tags };
 }
 
+// 简单限速。虽然只监听本机，但一个跑飞的前端循环足以把 1.6GB 的库打满。
+const RATE_WINDOW = 1000;
+const RATE_MAX = 40;
+const rateHits = new Map();
+function rateLimited(key, max) {
+  const now = Date.now();
+  const e = rateHits.get(key);
+  if (!e || now - e.at > RATE_WINDOW) { rateHits.set(key, { at: now, n: 1 }); return false; }
+  e.n++;
+  return e.n > (max || RATE_MAX);
+}
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, e] of rateHits) if (now - e.at > RATE_WINDOW * 5) rateHits.delete(k);
+}, 60000).unref();
+
 async function api(req, res, pathname, query) {
   if (pathname === '/api/health') return send(res, 200, { ok: true, ts: Date.now() });
+
+  const ip = (req.socket && req.socket.remoteAddress) || 'local';
+  if (rateLimited(ip)) {
+    return send(res, 429, { error: '请求过于频繁，请稍后再试', retryAfterMs: RATE_WINDOW });
+  }
 
   if (pathname === '/api/facets') {
     const f = store.facets();
@@ -118,6 +140,30 @@ async function api(req, res, pathname, query) {
   const mSub = pathname.match(/^\/api\/subscriptions\/(\d+)$/);
   if (mSub && req.method === 'DELETE') {
     return send(res, 200, { ok: store.removeSubscription(mSub[1]), items: store.listSubscriptions() });
+  }
+
+  // ---------- 备份 / 恢复 ----------
+  if (pathname === '/api/backups') {
+    if (req.method === 'GET') return send(res, 200, { items: backup.listBackups(), dir: backup.BK_DIR });
+    if (req.method === 'POST') {
+      const body = await readBody(req).catch(() => ({}));
+      try { return send(res, 200, { ok: true, backup: backup.createBackup(body.label) }); }
+      catch (e) { return send(res, 200, { ok: false, error: String(e.message || e) }); }
+    }
+  }
+  const mBk = pathname.match(/^\/api\/backups\/([0-9T:-]+)$/);
+  if (mBk) {
+    if (req.method === 'DELETE') return send(res, 200, { ok: backup.deleteBackup(mBk[1]), items: backup.listBackups() });
+    if (req.method === 'POST') {
+      try {
+        const r = backup.restoreBackup(mBk[1]);
+        // 数据库文件已被替换，必须重启进程才能安全继续；
+        // 写标记文件让外层的「启动情报站.cmd」用新数据把它拉起来
+        try { fs.writeFileSync(path.join(ROOT, 'app', 'data', '.restart'), '1'); } catch (e) {}
+        setTimeout(() => process.exit(0), 600);
+        return send(res, 200, Object.assign({ restarting: true }, r));
+      } catch (e) { return send(res, 200, { ok: false, error: String(e.message || e) }); }
+    }
   }
 
   // ---------- 应用状态（上次访问时间等）----------

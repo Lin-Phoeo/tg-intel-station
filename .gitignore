@@ -29,3 +29,6 @@ output/预览图-仪表盘.png
 app/_*.png
 .DS_Store
 Thumbs.db
+
+# 本地备份（体积大，不入库）
+backups/

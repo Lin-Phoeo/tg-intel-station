@@ -166,6 +166,23 @@ export async function checkSubscriptions(since?: number): Promise<{ since: numbe
   return r.json();
 }
 
+// ---------- 备份 / 恢复 ----------
+export async function listBackups(): Promise<{ items: any[]; dir: string }> {
+  return (await fetch('/api/backups')).json();
+}
+export async function createBackup(label?: string): Promise<any> {
+  const r = await fetch('/api/backups', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ label: label || '' }),
+  });
+  return r.json();
+}
+export async function deleteBackup(id: string): Promise<{ ok: boolean; items: any[] }> {
+  return (await fetch('/api/backups/' + id, { method: 'DELETE' })).json();
+}
+export async function restoreBackup(id: string): Promise<any> {
+  return (await fetch('/api/backups/' + id, { method: 'POST' })).json();
+}
+
 // ---------- 应用状态 ----------
 export async function getState(k: string): Promise<{ k: string; v: string | null }> {
   return (await fetch('/api/state/' + k)).json();

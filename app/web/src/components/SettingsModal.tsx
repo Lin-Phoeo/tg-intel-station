@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { getSettings, saveSettings, testSettings } from '../api';
 import { ModelPicker } from './ModelPicker';
 import { BotSettings } from './BotSettings';
+import { BackupPanel } from './BackupPanel';
 
 type Profile = { id: string; name: string; baseUrl: string; model: string; apiKey?: string; hasKey?: boolean; keyHint?: string; headers?: string; apiFormat?: string; modelsUrl?: string };
 const blank = (): Profile => ({ id: 'p' + Date.now().toString(36), name: '新服务商', baseUrl: '', model: '', apiKey: '', headers: '', apiFormat: 'openai', modelsUrl: '' });
@@ -15,7 +16,7 @@ export function SettingsModal({ open, onClose, onActiveChange, initialTab }: { o
   const [editing, setEditing] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err' | 'info'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState<'ai' | 'bot'>(() => (initialTab || (new URLSearchParams(window.location.search).get('tab') === 'bot' ? 'bot' : 'ai')));
+  const [tab, setTab] = useState<'ai' | 'bot' | 'data'>(() => (initialTab || (new URLSearchParams(window.location.search).get('tab') === 'bot' ? 'bot' : 'ai')));
   useEffect(() => { if (open && initialTab) setTab(initialTab); }, [open, initialTab]);
 
   useEffect(() => {
@@ -81,6 +82,7 @@ export function SettingsModal({ open, onClose, onActiveChange, initialTab }: { o
       <div className="card" style={{ width: 680, maxWidth: '100%', maxHeight: '92vh', overflowY: 'auto', background: 'var(--bg-1)', padding: 24 }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
           <button className="btn" style={{ background: tab === 'ai' ? 'var(--bg-3)' : 'transparent', borderColor: tab === 'ai' ? 'var(--accent)' : 'var(--border)' }} onClick={() => setTab('ai')}>AI 模型</button>
+          <button className="btn" style={{ background: tab === 'data' ? 'var(--bg-3)' : 'transparent', borderColor: tab === 'data' ? 'var(--accent)' : 'var(--border)', color: tab === 'data' ? 'var(--fg)' : 'var(--fg-dim)' }} onClick={() => setTab('data')}>数据备份</button>
           <button className="btn" style={{ background: tab === 'bot' ? 'var(--bg-3)' : 'transparent', borderColor: tab === 'bot' ? 'var(--accent)' : 'var(--border)' }} onClick={() => setTab('bot')}>🤖 电报机器人</button>
         </div>
 
@@ -183,6 +185,14 @@ export function SettingsModal({ open, onClose, onActiveChange, initialTab }: { o
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
             <button className="btn ghost" onClick={onClose}>关闭</button>
           </div>
+        </>)}
+
+        {tab === 'data' && (<>
+          <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 4 }}>数据备份</div>
+          <div style={{ fontSize: 13, color: 'var(--fg-dim)', marginBottom: 16, lineHeight: 1.7 }}>
+            把整个情报库和配置打包留档，随时可以退回。误删了抓来的数据、想换电脑、升级前留底，都用得上。
+          </div>
+          <BackupPanel />
         </>)}
       </div>
     </div>

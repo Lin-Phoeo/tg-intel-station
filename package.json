@@ -20,6 +20,9 @@
     "discover": "node scrape/discover.mjs",
     "discover:lists": "node scrape/discover-lists.mjs",
     "cluster": "node scrape/cluster.mjs",
-    "add:sources": "node scrape/add-sources.mjs"
+    "add:sources": "node scrape/add-sources.mjs",
+    "backup": "node app/server/backup-cli.mjs create",
+    "backup:list": "node app/server/backup-cli.mjs list",
+    "reindex": "node scrape/reindex.mjs"
   }
 }
