@@ -2,47 +2,92 @@
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
+import { splitTerms } from '../../core/text.mjs';
+import { buildQuery, orExpr } from '../../core/query.mjs';
+import { orderBy, orderBySimple, bm25Expr } from '../../core/rank.mjs';
+
+export { splitTerms };
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const DB_PATH = process.env.DB_PATH || path.join(ROOT, 'app', 'data', 'intel.db');
 
 let db = null;
+let countCache = { n: 0, at: 0 };
 
-// 新增列（群消息收录用），首次打开时自动迁移，已存在则跳过
+// ---------- 表结构 ----------
+// store 是唯一写入方，schema 也由 store 负责，避免出现第二套建表逻辑
+const SQL_POSTS = [
+  'CREATE TABLE posts(',
+  '  id INTEGER PRIMARY KEY,',
+  '  channel TEXT NOT NULL,',
+  '  msg_id INTEGER NOT NULL,',
+  '  date TEXT, ts INTEGER, views INTEGER, media TEXT,',
+  '  text TEXT, category TEXT, categories TEXT, tags TEXT, hashtags TEXT,',
+  '  value REAL, content REAL, url TEXT, links TEXT, domains TEXT, lp_title TEXT,',
+  "  source TEXT DEFAULT 'channel', author TEXT DEFAULT '', group_title TEXT DEFAULT ''",
+  ')',
+].join('\n');
+
+function createSchema() {
+  db.exec(SQL_POSTS);
+  db.exec('CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT)');
+  db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS posts_fts USING fts5(text, tags, domains, channel, content='posts', content_rowid='id', tokenize='trigram')");
+  db.exec("CREATE TABLE IF NOT EXISTS sources(id TEXT PRIMARY KEY, kind TEXT, title TEXT, members TEXT, url TEXT, added_at TEXT, last_sync TEXT, imported INTEGER DEFAULT 0, note TEXT)");
+  db.exec("CREATE TABLE IF NOT EXISTS job_runs(job_key TEXT NOT NULL, run_date TEXT NOT NULL, status TEXT NOT NULL, started_at TEXT, finished_at TEXT, detail TEXT, PRIMARY KEY(job_key, run_date))");
+  db.exec('CREATE INDEX IF NOT EXISTS idx_posts_lookup ON posts(channel, msg_id)');
+}
+
+function migrate() {
+  const cols = db.prepare('PRAGMA table_info(posts)').all().map(r => String(r.name));
+  if (cols.indexOf('source') < 0) db.exec("ALTER TABLE posts ADD COLUMN source TEXT DEFAULT 'channel'");
+  if (cols.indexOf('author') < 0) db.exec("ALTER TABLE posts ADD COLUMN author TEXT DEFAULT ''");
+  if (cols.indexOf('group_title') < 0) db.exec("ALTER TABLE posts ADD COLUMN group_title TEXT DEFAULT ''");
+  db.exec('CREATE INDEX IF NOT EXISTS idx_posts_lookup ON posts(channel, msg_id)');
+  db.exec("CREATE TABLE IF NOT EXISTS job_runs(job_key TEXT NOT NULL, run_date TEXT NOT NULL, status TEXT NOT NULL, started_at TEXT, finished_at TEXT, detail TEXT, PRIMARY KEY(job_key, run_date))");
+}
+
 function ensureSchema() {
   try {
-    const cols = db.prepare('PRAGMA table_info(posts)').all().map(r => String(r.name));
-    if (cols.indexOf('source') < 0) db.exec("ALTER TABLE posts ADD COLUMN source TEXT DEFAULT 'channel'");
-    if (cols.indexOf('author') < 0) db.exec("ALTER TABLE posts ADD COLUMN author TEXT DEFAULT ''");
-    if (cols.indexOf('group_title') < 0) db.exec("ALTER TABLE posts ADD COLUMN group_title TEXT DEFAULT ''");
-    db.exec('CREATE INDEX IF NOT EXISTS idx_posts_lookup ON posts(channel, msg_id)');
-    db.exec("CREATE TABLE IF NOT EXISTS sources(id TEXT PRIMARY KEY, kind TEXT, title TEXT, members TEXT, url TEXT, added_at TEXT, last_sync TEXT, imported INTEGER DEFAULT 0, note TEXT)");
+    const has = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='posts'").get();
+    if (!has) createSchema(); else migrate();
   } catch (e) { /* 只读打开或迁移失败不应阻断服务 */ }
+}
+
+export function close() {
+  if (db) { try { db.close(); } catch (e) {} db = null; }
 }
 
 export function open() {
   if (db) return db;
   db = new DatabaseSync(DB_PATH, { readOnly: false });
+  db.exec('PRAGMA journal_mode=WAL');
   db.exec('PRAGMA cache_size=-160000');
   db.exec('PRAGMA mmap_size=1073741824');
   ensureSchema();
   return db;
 }
 
-// 把所有来源的消息写进同一个索引库（频道抓取 / 群消息 / 网页采集）
+// ---------- 唯一写入入口 ----------
+const POST_COLS = 'channel,msg_id,date,ts,views,media,text,category,categories,tags,hashtags,value,content,url,links,domains,lp_title,source,author,group_title';
+const POST_PH = '?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?';
+
+function recToRow(rec) {
+  return [
+    rec.channel, rec.msgId, rec.date || '', rec.ts || 0, rec.views || 0, rec.media || '',
+    rec.text || '', rec.category || '', rec.categories || '', rec.tags || '', rec.hashtags || '',
+    rec.value || 0, rec.content || 0, rec.url || '', rec.links || '', rec.domains || '', rec.lpTitle || '',
+    rec.source || 'group', rec.author || '', rec.groupTitle || '',
+  ];
+}
+
+// 增量写入：频道抓取 / 群消息 / 网页采集全部走这里，按 (channel, msg_id) 幂等
 export function insertPost(rec) {
   const d = open();
   const exists = d.prepare('SELECT id FROM posts WHERE channel = ? AND msg_id = ? LIMIT 1').get(rec.channel, rec.msgId);
   if (exists) return { inserted: false, id: exists.id, reason: 'duplicate' };
-  const maxRow = d.prepare('SELECT MAX(id) AS m FROM posts').get();
-  const id = ((maxRow && maxRow.m) ? maxRow.m : 0) + 1;
-  d.prepare('INSERT INTO posts(id,channel,msg_id,date,ts,views,media,text,category,categories,tags,hashtags,value,content,url,links,domains,lp_title,source,author,group_title) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(
-    id, rec.channel, rec.msgId, rec.date || '', rec.ts || 0, 0, rec.media || '',
-    rec.text || '', rec.category || '', rec.categories || '', rec.tags || '', rec.hashtags || '',
-    rec.value || 0, rec.content || 0, rec.url || '', rec.links || '', rec.domains || '', '',
-    rec.source || 'group', rec.author || '', rec.groupTitle || ''
-  );
-  d.prepare('INSERT INTO posts_fts(rowid, text, tags, domains, channel) VALUES(?,?,?,?,?)').run(
+  const info = d.prepare('INSERT INTO posts(' + POST_COLS + ') VALUES(' + POST_PH + ')').run(...recToRow(rec));
+  const id = Number(info.lastInsertRowid);
+  d.prepare('INSERT INTO posts_fts(rowid,text,tags,domains,channel) VALUES(?,?,?,?,?)').run(
     id, rec.text || '', rec.tags || '', rec.domains || '', rec.channel
   );
   countCache = { n: 0, at: 0 };
@@ -50,6 +95,25 @@ export function insertPost(rec) {
 }
 
 export const insertGroupPost = insertPost;
+
+// 批量写入（仅首次建库用）：只写主表，最后统一重建 FTS，比逐条写索引快一个数量级
+export function bulkInsertPosts(rows) {
+  const d = open();
+  const stmt = d.prepare('INSERT OR REPLACE INTO posts(id,' + POST_COLS + ') VALUES(?,' + POST_PH + ')');
+  let n = 0;
+  d.exec('BEGIN');
+  for (const row of rows) { stmt.run(row.id, ...recToRow(row)); n++; }
+  d.exec('COMMIT');
+  countCache = { n: 0, at: 0 };
+  return n;
+}
+
+export function rebuildFts() {
+  const d = open();
+  d.exec("INSERT INTO posts_fts(posts_fts) VALUES('rebuild')");
+  d.exec("INSERT INTO posts_fts(posts_fts) VALUES('optimize')");
+  return true;
+}
 
 // ---------- 来源管理（用户手动添加的链接）----------
 export function listSources() {
@@ -92,22 +156,6 @@ export function groupStats() {
   return { total: r ? r.n : 0, groups: g };
 }
 
-const FTS_SPECIAL = /["'*():^\-]/g;
-
-export function splitTerms(q) {
-  return String(q || '')
-    .replace(/[，。！？、；：""''（）【】《》,.!?;:()\[\]{}<>|\\/]/g, ' ')
-    .split(/\s+/)
-    .map(s => s.trim())
-    .filter(Boolean);
-}
-
-function ftsExpr(terms) {
-  const good = terms.map(t => t.replace(FTS_SPECIAL, '')).filter(t => [...t].length >= 3);
-  if (!good.length) return null;
-  return good.map(t => '"' + t + '"').join(' AND ');
-}
-
 const SELECT_COLS = 'p.id,p.channel,p.msg_id,p.date,p.ts,p.views,p.media,p.text,p.category,p.categories,p.tags,p.hashtags,p.value,p.content,p.url,p.links,p.domains,p.lp_title';
 
 function rowToPost(r) {
@@ -135,10 +183,10 @@ export function search(opts) {
   if (minValue) { where.push('p.value >= ?'); params.push(minValue); }
   for (const t of tags) { where.push("(',' || p.tags || ',') LIKE ?"); params.push('%,' + t + ',%'); }
 
-  const terms = splitTerms(q);
-  const longTerms = terms.filter(t => [...t].length >= 3);
-  const shortTerms = terms.filter(t => [...t].length < 3);
-  const expr = longTerms.length ? ftsExpr(longTerms) : null;
+  const qy = buildQuery(q);
+  const terms = qy.terms;
+  const shortTerms = qy.shortTerms;
+  const expr = qy.expr;
   const offset = (Math.max(1, page) - 1) * size;
 
   let rows = [];
@@ -151,11 +199,8 @@ export function search(opts) {
     const params2 = params.slice();
     for (const t of shortTerms) { where2.push('p.text LIKE ?'); params2.push('%' + t + '%'); }
     const w = where2.length ? ' AND ' + where2.join(' AND ') : '';
-    const orderSql = sort === 'date' ? 'p.date DESC, p.ts DESC'
-      : sort === 'views' ? 'p.views DESC'
-      : sort === 'value' ? 'p.value DESC, p.ts DESC'
-      : '(bm25(posts_fts, 8.0, 3.0, 2.0, 1.0) - p.value * 0.5) ASC';
-    const sql = 'SELECT ' + SELECT_COLS + ', bm25(posts_fts, 8.0, 3.0, 2.0, 1.0) AS rank FROM posts_fts f JOIN posts p ON p.id = f.rowid WHERE posts_fts MATCH ?' + w + ' ORDER BY ' + orderSql + ' LIMIT ? OFFSET ?';
+    const orderSql = orderBy(sort);
+    const sql = 'SELECT ' + SELECT_COLS + ', ' + bm25Expr() + ' AS rank FROM posts_fts f JOIN posts p ON p.id = f.rowid WHERE posts_fts MATCH ?' + w + ' ORDER BY ' + orderSql + ' LIMIT ? OFFSET ?';
     rows = d.prepare(sql).all(expr, ...params2, size, offset);
     const c = d.prepare('SELECT COUNT(*) AS n FROM (SELECT f.rowid FROM posts_fts f JOIN posts p ON p.id = f.rowid WHERE posts_fts MATCH ?' + w + ' LIMIT 20000)').get(expr, ...params2);
     total = c ? c.n : 0;
@@ -166,14 +211,14 @@ export function search(opts) {
     const likeP = params.slice();
     for (const t of terms) { likeW.push('p.text LIKE ?'); likeP.push('%' + t + '%'); }
     const w = likeW.length ? ' WHERE ' + likeW.join(' AND ') : '';
-    const orderSql = sort === 'date' ? 'p.date DESC' : sort === 'views' ? 'p.views DESC' : 'p.value DESC, p.ts DESC';
+    const orderSql = orderBySimple(sort);
     rows = d.prepare('SELECT ' + SELECT_COLS + ' FROM posts p' + w + ' ORDER BY ' + orderSql + ' LIMIT ? OFFSET ?').all(...likeP, size, offset);
     const lc = d.prepare('SELECT COUNT(*) AS n FROM (SELECT 1 FROM posts p' + w + ' LIMIT 20000)').get(...likeP);
     total = lc ? lc.n : 0;
   } else {
     mode = 'browse';
     const w = where.length ? ' WHERE ' + where.join(' AND ') : '';
-    const orderSql = sort === 'date' ? 'p.date DESC, p.ts DESC' : sort === 'views' ? 'p.views DESC' : sort === 'relevance' ? 'p.value DESC, p.ts DESC' : 'p.value DESC, p.ts DESC';
+    const orderSql = orderBySimple(sort);
     rows = d.prepare('SELECT ' + SELECT_COLS + ' FROM posts p' + w + ' ORDER BY ' + orderSql + ' LIMIT ? OFFSET ?').all(...params, size, offset);
     const c = where.length === 0
       ? d.prepare('SELECT COUNT(*) AS n FROM posts').get()
@@ -182,6 +227,48 @@ export function search(opts) {
   }
 
   return { mode, total, page: Number(page), size: Number(size), items: rows.map(rowToPost) };
+}
+
+// 按 id 键集分页遍历（避免大 OFFSET），供报告生成等批量场景使用
+export function forEachPost(opts, onBatch) {
+  const o = opts || {};
+  const d = open();
+  const where = [];
+  const params = [];
+  if (o.category) { where.push('p.category = ?'); params.push(o.category); }
+  if (o.minValue) { where.push('p.value >= ?'); params.push(o.minValue); }
+  if (o.from) { where.push('p.date >= ?'); params.push(o.from); }
+  where.push('p.id > ?');
+  const w = ' WHERE ' + where.join(' AND ');
+  const size = Math.min(20000, o.size || 5000);
+  let last = 0, total = 0;
+  while (true) {
+    const rows = d.prepare('SELECT ' + SELECT_COLS + ' FROM posts p' + w + ' ORDER BY p.id LIMIT ?').all(...params, last, size);
+    if (!rows.length) break;
+    const items = rows.map(rowToPost);
+    total += items.length;
+    onBatch(items);
+    last = rows[rows.length - 1].id;
+    if (rows.length < size) break;
+  }
+  return total;
+}
+
+// 遍历「有价值」条目，并补齐报告层沿用的旧字段名（primary / cats）
+export function forEachValuable(onBatch, opts) {
+  const o = opts || {};
+  const contentMin = o.contentMin == null ? 2 : o.contentMin;
+  return forEachPost({ minValue: o.minValue == null ? 2 : o.minValue, size: o.size || 5000 }, (batch) => {
+    const out = [];
+    for (const p of batch) {
+      if ((p.content || 0) < contentMin) continue;
+      if ((p.text || '').length < 10) continue;
+      p.primary = p.category;
+      p.cats = p.categories;
+      out.push(p);
+    }
+    if (out.length) onBatch(out);
+  });
 }
 
 export function getPost(id) {
@@ -201,24 +288,17 @@ export function keyTerms(text) {
   return [...new Set(out)];
 }
 
-function ftsExprOr(terms) {
-  const good = terms.map(t => t.replace(FTS_SPECIAL, '')).filter(t => [...t].length >= 3);
-  if (!good.length) return null;
-  return good.map(t => '"' + t + '"').join(' OR ');
-}
-
 export function related(id, limit = 8) {
   const d = open();
   const p = getPost(id);
   if (!p) return [];
-  const expr = ftsExprOr(keyTerms(p.text));
+  const expr = orExpr(keyTerms(p.text));
   if (!expr) return [];
-  const rows = d.prepare('SELECT ' + SELECT_COLS + ', bm25(posts_fts, 8.0, 3.0, 2.0, 1.0) AS rank FROM posts_fts f JOIN posts p ON p.id = f.rowid WHERE posts_fts MATCH ? AND p.id != ? ORDER BY rank ASC LIMIT ?').all(expr, Number(id), limit);
+  const rows = d.prepare('SELECT ' + SELECT_COLS + ', ' + bm25Expr() + ' AS rank FROM posts_fts f JOIN posts p ON p.id = f.rowid WHERE posts_fts MATCH ? AND p.id != ? ORDER BY rank ASC LIMIT ?').all(expr, Number(id), limit);
   return rows.map(rowToPost);
 }
 
 // 实时行数（30 秒缓存）：增量导入后总数会变，不能再用建库时写死的 meta.count
-let countCache = { n: 0, at: 0 };
 export function liveCount() {
   if (Date.now() - countCache.at < 30000) return countCache.n;
   const d = open();

@@ -1,7 +1,8 @@
+// 数据来源：intel.db（唯一真相）
 import fs from 'node:fs';
 import path from 'node:path';
-import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import * as store from '../app/server/store.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = path.join(ROOT, 'output', '分类报告');
 
@@ -11,10 +12,8 @@ const FILEHOST = /quark\.cn|baidu\.com|lanzou|123pan|aliyundrive|alipan|115\.com
 
 const dom = new Map(), domFile = new Map(), men = new Map();
 let n = 0;
-const rl = readline.createInterface({ input: fs.createReadStream(path.join(ROOT, 'data', 'valuable.jsonl')), crlfDelay: Infinity });
-for await (const line of rl) {
-  if (!line.trim()) continue;
-  let it; try { it = JSON.parse(line); } catch (e) { continue; }
+store.forEachValuable((batch) => {
+for (const it of batch) {
   n++;
   for (const d of it.domains || []) {
     if (EXCLUDE.test(d)) continue;
@@ -32,6 +31,7 @@ for await (const line of rl) {
     men.set(k, (men.get(k) || 0) + 1);
   }
 }
+});
 const top = [...dom.entries()].sort((a, b) => b[1] - a[1]).slice(0, 300);
 const L = ['# 高频资源网站 TOP 300', '', '> 已剔除 Telegram / linux.do 自身域名与网盘链接，剩下的就是频道们反复推荐的**工具站、资源站、资讯源**。', '> 出现次数越高，说明被越多不同帖子验证过，越值得优先收藏。', '', '| 排名 | 域名 | 出现次数 |', '|---|---|---|'];
 top.forEach((e, i) => L.push('| ' + (i + 1) + ' | [' + e[0] + '](https://' + e[0] + ') | ' + e[1] + ' |'));

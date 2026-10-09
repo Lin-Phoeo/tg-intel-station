@@ -1,33 +1,12 @@
 // 按链接抓取内容进库：支持 Telegram 公开频道 + 任意网页；群组只能记录来源
 import * as store from './store.mjs';
-import { parseMessages, fetchHtml, stripTags, decodeEntities } from '../../scrape/telegram.mjs';
-import { classify } from '../../scrape/classify.mjs';
+import { parseMessages, parseLink, extractWeb } from '../../core/parse.mjs';
+import { fetchHtml } from '../../core/net.mjs';
+import { decodeEntities } from '../../core/text.mjs';
+import { classify } from '../../core/classify.mjs';
+import { appendRaw } from './rawlog.mjs';
 
-// ---------------- 链接解析 ----------------
-export function parseLink(input) {
-  const raw = String(input || '').trim();
-  if (!raw) return null;
-  const at = raw.match(/^@([A-Za-z][A-Za-z0-9_]{3,31})$/);
-  if (at) return { kind: 'tme', username: at[1], msgId: null, url: 'https://t.me/' + at[1] };
-
-  const m = raw.match(/^(?:https?:\/\/)?(?:www\.)?(?:t\.me|telegram\.me|telegram\.dog)\/(.+)$/i);
-  if (m) {
-    let rest = m[1].replace(/^s\//i, '').replace(/\/+$/, '');
-    const parts = rest.split('/');
-    const username = parts[0];
-    if (/^\+|^joinchat$/i.test(username)) return { kind: 'invite', username: '', msgId: null, url: raw };
-    if (username.toLowerCase() === 'c') return { kind: 'private', username: '', msgId: null, url: raw };
-    const msgId = parts[1] && /^\d+$/.test(parts[1]) ? Number(parts[1]) : null;
-    return { kind: 'tme', username: username, msgId: msgId, url: 'https://t.me/' + username };
-  }
-
-  if (/^https?:\/\//i.test(raw)) {
-    let host = '';
-    try { host = new URL(raw).hostname; } catch (e) { return null; }
-    return { kind: 'web', username: '', msgId: null, url: raw, host: host };
-  }
-  return null;
-}
+export { parseLink };
 
 // ---------------- 解析来源类型 ----------------
 export async function resolve(input) {
@@ -61,23 +40,6 @@ export async function resolve(input) {
   return { ok: true, kind: 'channel', username: p.username, url: 'https://t.me/' + p.username, title: title, existing: existing };
 }
 
-// ---------------- 网页正文提取 ----------------
-function extractWeb(html, url) {
-  const pick = (re) => { const m = html.match(re); return m ? decodeEntities(m[1]).trim() : ''; };
-  const title = pick(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']*)["']/i) || pick(/<title[^>]*>([\s\S]*?)<\/title>/i);
-  const desc = pick(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']*)["']/i) || pick(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']*)["']/i);
-  let body = html
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
-    .replace(/<nav[\s\S]*?<\/nav>/gi, ' ')
-    .replace(/<footer[\s\S]*?<\/footer>/gi, ' ')
-    .replace(/<header[\s\S]*?<\/header>/gi, ' ');
-  const text = stripTags(body).replace(/[ \t]{2,}/g, ' ');
-  const combined = (title ? title + '\n' : '') + (desc ? desc + '\n' : '') + text;
-  return { title: title, text: combined.slice(0, 6000) };
-}
-
 // ---------------- 导入 ----------------
 const jobs = new Map();
 let seq = 0;
@@ -92,7 +54,12 @@ function newJob(input) {
   return j;
 }
 
-function toPost(rec) { return store.insertPost(rec); }
+// 入库 + 落原始日志：保证任何一次导入都可在 data/raw 中找到来源
+function toPost(rec) {
+  const r = store.insertPost(rec);
+  if (r.inserted) appendRaw(rec);
+  return r;
+}
 
 export function startImport(input, opts) {
   const j = newJob(input);

@@ -61,6 +61,6 @@
 
 ## 数据更新
 
-    node scrape/scrape.mjs            # 增量抓取（已完成分段自动跳过）
-    node scrape/build.mjs             # 重新清洗分类
-    node app/server/build-db.mjs      # 重建索引
+    npm run fetch            # 增量抓取（已完成分段自动跳过）
+    npm run index:build      # 从 data/raw 全量重建数据库
+    npm run report           # 重新生成报告

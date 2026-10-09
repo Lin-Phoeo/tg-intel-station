@@ -17,18 +17,28 @@
 
 ```bash
 # 1. 抓取（支持断点续跑，已完成的频道会跳过）
-node scrape/scrape.mjs
+npm run fetch
 
-# 2. 清洗、去重、分类
-node scrape/build.mjs
+# 2. 从 data/raw 建库：去重 + 反垃圾 + 分类 + FTS 索引（约 1.5 GB，3~4 分钟）
+npm run index:build
 
-# 3. 建检索索引（约 1.5GB，需要几分钟）
-node app/server/build-db.mjs
-
-# 4. 启动应用
+# 3. 启动应用
 双击「启动情报站.cmd」，或手动：
-node app/server/index.mjs      # → http://127.0.0.1:8317
+npm start                      # → http://127.0.0.1:8317
 ```
+
+常用脚本：
+
+| 命令 | 作用 |
+|---|---|
+| `npm test` | 单元 + 集成测试（33 条用例） |
+| `npm run fetch` | 增量抓取所有来源 |
+| `npm run index:build` | 从 `data/raw` 全量重建数据库 |
+| `npm run report` | 从数据库生成分类报告与 CSV |
+| `npm run export` | 把数据库导出为 JSONL 归档 |
+| `npm run all` | 抓取 → 建库 → 出报告 |
+
+> 需要 **Node ≥ 24**（依赖内置的 `node:sqlite`）。
 
 首次启动如果 `app/web/dist` 不存在，启动脚本会自动 `npm install` + `npm run build`。
 也可以手动：`cd app/web && npm install && npm run build`
@@ -45,17 +55,23 @@ node app/server/index.mjs      # → http://127.0.0.1:8317
 ## 数据流水线
 
 ```
-t.me/s/<频道>  ──scrape.mjs──▶  data/raw/<频道>/seg_*.jsonl
-                                      │
-                                 build.mjs（去重 + 反垃圾 + 分类打分）
-                                      ▼
-                    data/clean.jsonl（852,433 条）
-                    data/valuable.jsonl（320,833 条精选）
-                                      │
-                              build-db.mjs（SQLite + FTS5 三元组索引）
-                                      ▼
-                              app/data/intel.db（1.5GB）
+t.me/s/<频道> ──scrape──▶ data/raw/<频道>/seg_*.jsonl ─┐
+                                                       │
+增量抓取 / 机器人收录 ──rawlog──▶ data/raw/_live/*.jsonl ─┤
+                                                       │
+                                    build-db（去重 + 反垃圾 + 分类）
+                                                       ▼
+                              app/data/intel.db  ★唯一真相★
+                                                       │
+                     ┌─────────────────────────────────┼──────────────────┐
+                     ▼                                 ▼                  ▼
+                检索 / 应用                       报告生成            export（归档）
+                                                                  data/clean.jsonl
 ```
+
+**设计要点**：数据库是唯一真相源。任何模块写数据都只能经过 `store.insertPost()`；
+报告直接从数据库生成，不再读中间 JSONL，因此**不会出现报告与数据不一致**。
+增量采集到的内容会同时追加到 `data/raw/_live/`，保证数据库随时可以从零完整重建。
 
 **分类维度**：羊毛优惠 / 项目副业 / 实用工具 / 开源项目 / AI与科技 / 服务器网络 / 账号会员 / 学习资源 / 数码硬件 / 资讯热点
 
@@ -193,26 +209,32 @@ Telegram 的**群没有公开预览页**，所以 `t.me/s/` 抓不到群（这�
 ## 目录结构
 
 ```
-scrape/
-  telegram.mjs      t.me/s HTML 解析 + 抓取
-  scrape.mjs        全量/增量抓取（分段并行、可续跑）
-  classify.mjs      分类、反垃圾、价值打分
-  build.mjs         去重 + 生成 clean/valuable 数据集
-  report.mjs        生成 Markdown 分类报告与 CSV
-  rankings.mjs      高频资源网站 / 推荐频道榜
-app/
-  server/
-    build-db.mjs    构建 SQLite + FTS5 索引
-    store.mjs       检索、短词回退、分类统计、关联推荐
-    ai.mjs          多服务商配置、RAG 检索、流式输出
-    index.mjs       HTTP API + 静态资源服务
-  web/              React 19 + Vite 8 + Tailwind 4
-    src/App.tsx     应用主壳
-    src/components/ PostCard / Detail / ChatPanel / SettingsModal / Markdown
-output/
-  分类报告/          各分类精选清单（Markdown）
-  00-总览与使用说明.md
-  01-深度洞察与变现建议.md
+core/                 领域层：纯函数、无 IO、可直接单测
+  text.mjs            文本工具（含 toGram 单字分词）
+  parse.mjs           t.me 页面解析 / 链接解析 / 网页正文提取
+  net.mjs             抓取（唯一有 IO 的 core 模块）
+  classify.mjs        分类、反垃圾、价值打分
+  query.mjs           FTS 查询构造（trigram / gram 双模式）
+  rank.mjs            排序与 bm25 加权
+
+app/server/           服务层
+  store.mjs           ★ 存储层唯一入口：schema 与全部写入
+  build-db.mjs        从 data/raw 全量重建数据库
+  rawlog.mjs          增量数据落原始日志（保证可重建）
+  source.mjs          按链接采集（频道 / 网页）
+  bot.mjs             Telegram 机器人（命令 / 日报 / 群收录）
+  ai.mjs              多服务商配置、RAG、流式输出
+  index.mjs           HTTP API + 静态资源服务
+
+app/web/              React 19 + Vite 8 + Tailwind 4
+scrape/               离线脚本
+  scrape.mjs          批量抓取
+  report.mjs          从数据库生成报告与 CSV
+  rankings.mjs        高频资源网站 / 推荐频道榜
+  insight.mjs         深度洞察报告
+  export.mjs          数据库导出为 JSONL 归档
+test/                 集成测试
+output/               报告产物
 ```
 
 ## API

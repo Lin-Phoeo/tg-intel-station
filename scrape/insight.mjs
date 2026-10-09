@@ -1,8 +1,8 @@
-// Generate the data-driven deep-dive & monetization report
+// 深度洞察报告。数据来源：intel.db（唯一真相）
 import fs from 'node:fs';
 import path from 'node:path';
-import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import * as store from '../app/server/store.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DATA = path.join(ROOT, 'data');
@@ -15,11 +15,9 @@ const KW = ["中转站", "公益站", "副业", "变现", "赚钱", "AI工具", 
 const kwCount = Object.fromEntries(KW.map(k => [k, 0]));
 const freeDeals = [], ghMap = new Map(), catTop = new Map();
 
-const rl = readline.createInterface({ input: fs.createReadStream(path.join(DATA, 'valuable.jsonl')), crlfDelay: Infinity });
-for await (const line of rl) {
-  if (!line.trim()) continue;
-  let it; try { it = JSON.parse(line); } catch (e) { continue; }
-  const hay = it.text + " " + (it.lp || []).map(x => x.t || "").join(" ");
+store.forEachValuable((batch) => {
+for (const it of batch) {
+  const hay = it.text + " " + (it.lpTitle || "");
   for (const k of KW) if (hay.includes(k)) kwCount[k]++;
   const tg = it.tags || [];
   if ((tg.includes("免费") || tg.includes("限时")) && it.text.length >= 25 && !tg.includes("风险")) freeDeals.push(it);
@@ -35,6 +33,7 @@ for await (const line of rl) {
   const arr = catTop.get(it.primary);
   if (arr.length < 8) arr.push(it);
 }
+});
 
 freeDeals.sort((a, b) => b.value - a.value);
 const deals = freeDeals.slice(0, 70);

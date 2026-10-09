@@ -2,7 +2,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { decodeEntities, parseMessages, fetchHtml } from './telegram.mjs';
+import { parseMessages } from '../core/parse.mjs';
+import { decodeEntities } from '../core/text.mjs';
+import { fetchHtml } from '../core/net.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const RAW = path.join(ROOT, 'data', 'raw');

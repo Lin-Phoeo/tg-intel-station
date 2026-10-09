@@ -1,8 +1,9 @@
-// Generate human-readable reports and CSV exports
+// 生成分类报告与导出文件。
+// 数据来源：intel.db（唯一真相）。不再读取 data/*.jsonl，避免与数据库不一致。
 import fs from 'node:fs';
 import path from 'node:path';
-import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import * as store from '../app/server/store.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DATA = path.join(ROOT, 'data');
@@ -13,16 +14,32 @@ fs.mkdirSync(path.join(OUT, '数据'), { recursive: true });
 
 const MD_CAP = Number(process.env.MD_CAP || 1200);
 const DASH_CAP = Number(process.env.DASH_CAP || 30000);
+const CONTENT_MIN = Number(process.env.CONTENT_MIN || 2);
 
 const items = [];
-const rl = readline.createInterface({ input: fs.createReadStream(path.join(DATA, 'valuable.jsonl')), crlfDelay: Infinity });
-for await (const line of rl) {
-  if (!line.trim()) continue;
-  try { items.push(JSON.parse(line)); } catch (e) {}
-}
-console.log('loaded valuable items:', items.length);
+store.forEachPost({ minValue: 2, size: 5000 }, (batch) => {
+  for (const p of batch) {
+    if ((p.content || 0) < CONTENT_MIN) continue;
+    if ((p.text || '').length < 10) continue;
+    p.primary = p.category;      // 报告内部沿用旧字段名
+    p.cats = p.categories;
+    items.push(p);
+  }
+});
+const dbTotal = store.liveCount();
+console.log('库内总数:', dbTotal, '| 有价值条目:', items.length);
 
-const stats = JSON.parse(fs.readFileSync(path.join(DATA, 'stats.json'), 'utf8'));
+const fac = store.facets();
+const stats = {
+  generatedAt: new Date().toISOString(),
+  channels: Object.fromEntries(fac.channels.map(c => [c.k, c.k])),
+  totals: { raw: dbTotal, clean: dbTotal, valuable: items.length },
+  byChannel: Object.fromEntries(fac.channels.map(c => [c.k, c.n])),
+  byCategory: Object.fromEntries(fac.categories.map(c => [c.k, c.n])),
+  byTag: {},
+  dateRange: [],
+  byMonth: {},
+};
 const fmtD = (d) => (d || '').slice(0, 10);
 
 function oneLine(it, max) {
@@ -154,19 +171,21 @@ console.log('sorted written:', sorted.length);
 const cOut = fs.createWriteStream(path.join(OUT, '数据', '全部有效内容.csv'));
 cOut.write('\ufeff' + head.join(',') + '\r\n');
 let cn = 0;
-const rl2 = readline.createInterface({ input: fs.createReadStream(path.join(DATA, 'clean.jsonl')), crlfDelay: Infinity });
-for await (const line of rl2) {
-  if (!line.trim()) continue;
-  let it; try { it = JSON.parse(line); } catch (e) { continue; }
-  const cells = [
-    fmtD(it.date), it.channel, it.primary, (it.tags || []).join(' '), it.value, it.views == null ? '' : it.views,
-    (it.text || '').replace(/\s*\n+\s*/g, ' ').slice(0, 300),
-    (it.links && it.links[0]) || (it.lp && it.lp[0] && it.lp[0].u) || '', it.url,
-  ].map(v => '"' + String(v).replace(/"/g, '""') + '"');
-  cOut.write(cells.join(',') + '\r\n');
-  cn++;
-}
+store.forEachPost({ size: 5000 }, (batch) => {
+  for (const it of batch) {
+    const cells = [
+      fmtD(it.date), it.channel, it.category, (it.tags || []).join(' '), it.value, it.views == null ? '' : it.views,
+      (it.text || '').replace(/\s*\n+\s*/g, ' ').slice(0, 300),
+      (it.links && it.links[0]) || '', it.url,
+    ].map(v => '"' + String(v).replace(/"/g, '""') + '"');
+    cOut.write(cells.join(',') + '\r\n');
+    cn++;
+  }
+});
 await new Promise(r => cOut.end(r));
 console.log('all-valid CSV rows:', cn);
+
+stats.csvRows = cn;
+fs.writeFileSync(path.join(DATA, 'stats.json'), JSON.stringify(stats, null, 2));
 fs.writeFileSync(path.join(DATA, 'report_index.json'), JSON.stringify({ files: files, total: items.length, cleanCsvRows: cn }, null, 2));
-console.log('DONE reports');
+console.log('DONE reports (source = intel.db)');

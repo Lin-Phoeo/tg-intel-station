@@ -1,6 +1,8 @@
-// Rule-based classifier, spam filter and value scorer for Telegram channel posts
+// 规则分类器 / 反垃圾 / 价值打分（纯函数）
+import { normalizeText, domainOf } from './text.mjs';
+
 export const CATS = [
-  { key: "羊毛优惠", kw: ["羊毛", "白嫖", "限免", "免费领取", "免费送", "免费下载", "0元", "零元", "优惠券", "优惠码", "优惠", "特价", "折扣", "打折", "返现", "返利", "补贴", "试用", "抽奖", "红包", "福利", "免费", "降价", "促销", "薅羊毛", "白给", "限时免费", "领取", "白送", "免费版", "代金券", "满减", "秒杀", "拼团", "到手价", "抢购", "免费送", "白嫖党", "看广告免费"] },
+  { key: "羊毛优惠", kw: ["羊毛", "白嫖", "限免", "免费领取", "免费送", "免费下载", "0元", "零元", "优惠券", "优惠码", "优惠", "特价", "折扣", "打折", "返现", "返利", "补贴", "试用", "抽奖", "红包", "福利", "免费", "降价", "促销", "薅羊毛", "白给", "限时免费", "领取", "白送", "免费版", "代金券", "满减", "秒杀", "拼团", "到手价", "抢购", "白嫖党", "看广告免费"] },
   { key: "实用工具", kw: ["工具", "软件", "神器", "插件", "脚本", "app", "客户端", "扩展", "油猴", "tampermonkey", "chrome", "浏览器", "绿色版", "便携版", "破解", "工具站", "在线工具", "网站", "效率", "自动化", "cli", "编辑器", "摸鱼", "下载器", "转换器", "生成器"] },
   { key: "开源项目", kw: ["github", "开源", "repo", "star", "源码", "self-host", "自建", "docker", "部署", "gitlab", "gitee", "npm", "仓库", "开源项目", "开源工具"] },
   { key: "AI与科技", kw: ["ai", "人工智能", "大模型", "gpt", "chatgpt", "claude", "gemini", "deepseek", "llm", "agent", "智能体", "aigc", "midjourney", "stable diffusion", "模型", "算法", "科技", "数码", "芯片", "机器人", "元宇宙", "prompt", "提示词", "算力", "推理", "微调", "rag", "mcp"] },
@@ -52,29 +54,7 @@ const SPAM = [
   [1, ["加微信", "加qq", "私聊我", "扫码进群", "飞机号", "tg号", "联系我"]],
 ];
 
-export function normalizeText(t) {
-  if (!t) return "";
-  return String(t)
-    .replace(/\u200b|\ufeff/g, "")
-    .replace(/[ \t\u00a0]+/g, " ")
-    .replace(/\n{2,}/g, "\n")
-    .trim();
-}
-
-export function fnv(str) {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return h >>> 0;
-}
-
-export function domainOf(u) {
-  try { return new URL(u.startsWith("//") ? "https:" + u : u).hostname.replace(/^www\./, ""); }
-  catch (e) { return null; }
-}
-
+// m: { t 文本, lk 链接[], lp 链接预览[], v 浏览量, ts 时间戳 }
 export function classify(m) {
   const text = normalizeText(m.t || "");
   const lower = text.toLowerCase();
@@ -96,9 +76,8 @@ export function classify(m) {
   let hm;
   while ((hm = hRe.exec(text))) {
     const raw = hm[1];
-    const k = raw.toLowerCase();
+    const map = HASHTAGS[raw.toLowerCase()];
     hashtags.push(raw);
-    const map = HASHTAGS[k];
     if (map) {
       scores[map[0]] = (scores[map[0]] || 0) + map[1];
       if (!tags.includes(map[0])) tags.push(map[0]);
@@ -128,7 +107,6 @@ export function classify(m) {
   const pop = Math.min(2, Math.log10(1 + (m.v || 0)) * 0.7);
   const recent = m.ts && (Date.now() / 1000 - m.ts) < 180 * 86400 ? 0.5 : 0;
   const value = +(content + pop + recent).toFixed(2);
-
   const domains = [...new Set(links.map(domainOf).filter(Boolean))];
 
   return { text, primary, cats: labels, tags, hashtags, spam: +spam.toFixed(1), spamHits, content: +content.toFixed(2), value, domains, links };

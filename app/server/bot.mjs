@@ -3,8 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as store from './store.mjs';
+import { appendRaw } from './rawlog.mjs';
 import * as ai from './ai.mjs';
-import { classify } from '../../scrape/classify.mjs';
+import { classify } from '../../core/classify.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CONFIG_PATH = path.join(ROOT, 'app', 'data', 'bot.json');
@@ -98,18 +99,20 @@ async function ingestGroupMessage(msg) {
 
   const author = [msg.from && msg.from.first_name, msg.from && msg.from.last_name].filter(Boolean).join(' ') || (msg.from && msg.from.username) || '';
   let r;
+  const rec = {
+    channel: channel, msgId: msg.message_id,
+    date: msg.date ? new Date(msg.date * 1000).toISOString().slice(0, 10) : '',
+    ts: msg.date || 0,
+    text: cls.text, category: cls.primary, categories: (cls.cats || []).join(','),
+    tags: (cls.tags || []).join(','), hashtags: (cls.hashtags || []).join(','),
+    value: cls.value, content: cls.content,
+    url: 'https://t.me/' + (msg.chat.username ? msg.chat.username : 'c/' + chatId) + '/' + msg.message_id,
+    links: links.join(' '), domains: domains.join(' '), lpTitle: '',
+    source: 'group', author: author, groupTitle: msg.chat.title || '',
+  };
   try {
-    r = store.insertGroupPost({
-      channel: channel, msgId: msg.message_id,
-      date: msg.date ? new Date(msg.date * 1000).toISOString().slice(0, 10) : '',
-      ts: msg.date || 0,
-      text: cls.text, category: cls.primary, categories: (cls.cats || []).join(','),
-      tags: (cls.tags || []).join(','), hashtags: (cls.hashtags || []).join(','),
-      value: cls.value, content: cls.content,
-      url: 'https://t.me/' + (msg.chat.username ? msg.chat.username : 'c/' + chatId) + '/' + msg.message_id,
-      links: links.join(' '), domains: domains.join(' '),
-      author: author, groupTitle: msg.chat.title || '',
-    });
+    r = store.insertPost(rec);
+    if (r.inserted) appendRaw(rec);
   } catch (e) { status.lastError = '写入群消息失败：' + String(e.message || e); return; }
 
   if (r.inserted) {

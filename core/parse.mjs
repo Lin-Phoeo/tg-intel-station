@@ -1,28 +1,5 @@
-// Telegram public preview (t.me/s) parser + fetcher
-export const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
-export const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-
-export function decodeEntities(s) {
-  if (!s) return "";
-  return s
-    .replace(/&nbsp;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/&apos;/g, "'")
-    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(+d))
-    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-    .replace(/&amp;/g, "&");
-}
-
-export function stripTags(html) {
-  if (!html) return "";
-  let s = html;
-  s = s.replace(/<br\s*\/?>/gi, "\n");
-  s = s.replace(/<\/(p|div|blockquote|li|tr|h[1-6])>/gi, "\n");
-  s = s.replace(/<tg-emoji[^>]*>([\s\S]*?)<\/tg-emoji>/gi, "$1");
-  s = s.replace(/<[^>]*>/g, "");
-  s = decodeEntities(s);
-  s = s.replace(/[ \t\u00a0]+\n/g, "\n").replace(/\n{3,}/g, "\n\n");
-  return s.trim();
-}
+// 纯解析：Telegram 公开预览页 / 链接 / 网页正文
+import { decodeEntities, stripTags } from './text.mjs';
 
 function viewNum(v) {
   if (!v) return null;
@@ -41,10 +18,11 @@ const BOUNDARIES = [
   '<a class="tgme_widget_message_document_wrap',
 ];
 
+// 解析 t.me/s 预览页 HTML -> 消息数组
 export function parseMessages(html, channel) {
   const out = [];
   if (!html) return out;
-  const blocks = html.split('js-widget_message_wrap">').slice(1);
+  const blocks = String(html).split('js-widget_message_wrap">').slice(1);
   for (const b of blocks) {
     const dp = b.match(/data-post="([^"]+)\/(\d+)"/);
     if (!dp) continue;
@@ -52,7 +30,6 @@ export function parseMessages(html, channel) {
     const dt = (b.match(/<time datetime="([^"]+)"/) || [])[1] || null;
     const viewsRaw = (b.match(/tgme_widget_message_views">([^<]*)</) || [])[1] || null;
 
-    // ---- text ----
     let text = "";
     const marker = 'js-message_text" dir="auto">';
     const tIdx = b.indexOf(marker);
@@ -66,7 +43,6 @@ export function parseMessages(html, channel) {
       text = stripTags(rawHtml);
     }
 
-    // ---- link previews ----
     const lp = [];
     const lpRe = /<a class="tgme_widget_message_link_preview"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g;
     let lm;
@@ -79,7 +55,6 @@ export function parseMessages(html, channel) {
       });
     }
 
-    // ---- links in text ----
     const lk = [];
     const lkRe = /href="([^"]+)"/g;
     let km;
@@ -91,7 +66,6 @@ export function parseMessages(html, channel) {
       lk.push(u);
     }
 
-    // ---- media ----
     const flags = [];
     if (b.includes("tgme_widget_message_photo_wrap")) flags.push("photo");
     if (b.includes("grouped_media_wrap") || b.includes("js-message_grouped")) flags.push("album");
@@ -107,40 +81,58 @@ export function parseMessages(html, channel) {
     const author = stripTags((b.match(/tgme_widget_message_from_author[^>]*>([^<]*)</) || [])[1] || "") || null;
 
     out.push({
-      i: id,
-      d: dt,
+      i: id, d: dt,
       ts: dt ? Math.floor(Date.parse(dt) / 1000) : null,
-      v: viewNum(viewsRaw),
-      t: text,
-      m: flags.join("+"),
+      v: viewNum(viewsRaw), t: text, m: flags.join("+"),
       lp: lp.length ? lp : undefined,
       lk: lk.length ? [...new Set(lk)].slice(0, 12) : undefined,
-      fw: fwd,
-      au: author,
+      fw: fwd, au: author,
     });
   }
   return out;
 }
 
-let REQ = 0;
-export function reqCount() { return REQ; }
+// 解析用户粘贴的链接
+//   t.me/xxx | t.me/s/xxx | @xxx | t.me/+invite | t.me/c/xxx | 任意 http(s)
+export function parseLink(input) {
+  const raw = String(input || '').trim();
+  if (!raw) return null;
+  const at = raw.match(/^@([A-Za-z][A-Za-z0-9_]{3,31})$/);
+  if (at) return { kind: 'tme', username: at[1], msgId: null, url: 'https://t.me/' + at[1] };
 
-export async function fetchHtml(url, tries = 4) {
-  for (let i = 0; i < tries; i++) {
-    try {
-      const r = await fetch(url, {
-        headers: { "User-Agent": UA, "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8" },
-        signal: AbortSignal.timeout(30000),
-      });
-      REQ++;
-      if (r.status === 200) {
-        const t = await r.text();
-        if (t.length > 500) return t;
-        return t;
-      }
-      if (r.status === 429 || r.status === 500 || r.status === 502) { await sleep(1200 * (i + 1)); continue; }
-      return null;
-    } catch (e) { await sleep(600 * (i + 1)); }
+  const m = raw.match(/^(?:https?:\/\/)?(?:www\.)?(?:t\.me|telegram\.me|telegram\.dog)\/(.+)$/i);
+  if (m) {
+    let rest = m[1].replace(/^s\//i, '').replace(/\/+$/, '');
+    const parts = rest.split('/');
+    const username = parts[0];
+    if (/^\+|^joinchat$/i.test(username)) return { kind: 'invite', username: '', msgId: null, url: raw };
+    if (username.toLowerCase() === 'c') return { kind: 'private', username: '', msgId: null, url: raw };
+    const msgId = parts[1] && /^\d+$/.test(parts[1]) ? Number(parts[1]) : null;
+    return { kind: 'tme', username: username, msgId: msgId, url: 'https://t.me/' + username };
+  }
+
+  if (/^https?:\/\//i.test(raw)) {
+    let host = '';
+    try { host = new URL(raw).hostname; } catch (e) { return null; }
+    return { kind: 'web', username: '', msgId: null, url: raw, host: host };
   }
   return null;
+}
+
+// 网页正文提取：优先 og:*，回退 title/description + 去标签正文
+export function extractWeb(html, url) {
+  const src = String(html || '');
+  const pick = (re) => { const m = src.match(re); return m ? decodeEntities(m[1]).trim() : ''; };
+  const title = pick(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']*)["']/i) || pick(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  const desc = pick(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']*)["']/i) || pick(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']*)["']/i);
+  const body = src
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+    .replace(/<nav[\s\S]*?<\/nav>/gi, ' ')
+    .replace(/<footer[\s\S]*?<\/footer>/gi, ' ')
+    .replace(/<header[\s\S]*?<\/header>/gi, ' ');
+  const text = stripTags(body).replace(/[ \t]{2,}/g, ' ');
+  const combined = (title ? title + '\n' : '') + (desc ? desc + '\n' : '') + text;
+  return { title: title, text: combined.slice(0, 6000) };
 }

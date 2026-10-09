@@ -1,0 +1,21 @@
+{
+  "name": "tg-intel-station",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "个人情报助手：采集 Telegram 公开频道与网页，去重分类后可检索、可问答、可推送",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node app/server/index.mjs",
+    "dev:web": "npm --prefix app/web run dev",
+    "build:web": "npm --prefix app/web run build",
+    "test": "node --test core/*.test.mjs test/*.test.mjs",
+    "index:build": "node app/server/build-db.mjs",
+    "fetch": "node scrape/scrape.mjs",
+    "report": "node scrape/report.mjs",
+    "export": "node scrape/export.mjs",
+    "all": "npm run fetch && npm run index:build && npm run report"
+  }
+}
