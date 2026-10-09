@@ -73,7 +73,7 @@ export function TopProgress() {
             {sem.finishAt ? '（预计 ' + fmtClock(sem.finishAt) + ' 完成）' : ''}
           </>}
           {!building && pending && <>剩 {remain.toLocaleString()} 条未处理</>}
-          {syncing && !building && <>正在抓取 {n(sync.done)}/{n(sync.total)} 个来源 · 新增 {n(sync.imported)} 条</>}
+          {syncing && !building && <>正在抓取 {n(sync.done)}/{n(sync.total)} 个来源 · 新增 {n(sync.imported)} 条{sync.startedBy ? ' · 由' + sync.startedBy + '触发' : ''}</>}
         </span>
         <span style={{ flex: 1 }} />
         <span className="tpp-chev">{open ? <ChevronUp size={13} strokeWidth={2} /> : <ChevronDown size={13} strokeWidth={2} />}</span>

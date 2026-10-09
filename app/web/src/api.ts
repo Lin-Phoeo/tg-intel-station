@@ -222,10 +222,10 @@ export async function setState(k: string, v: string): Promise<{ ok: boolean }> {
 export async function getSyncStatus(): Promise<any> {
   return (await fetch('/api/sync/status')).json();
 }
-export async function runSync(maxMessages?: number): Promise<any> {
+export async function runSync(maxMessages?: number, by?: string): Promise<any> {
   const r = await fetch('/api/sync/run', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ maxMessages }),
+    body: JSON.stringify({ maxMessages, by }),
   });
   return r.json();
 }

@@ -7,6 +7,8 @@ let state = {
   running: false, startedAt: null, finishedAt: null,
   total: 0, done: 0, imported: 0, skipped: 0, scanned: 0,
   current: '', sources: [], error: null,
+  // 谁触发的这次同步。之前不留痕迹，用户发现帖子变多了没法查是哪来的。
+  startedBy: '',
 };
 
 function lastSyncInfo() {
@@ -43,6 +45,7 @@ export async function runFullSync(opts) {
     running: true, startedAt: Date.now(), finishedAt: null,
     total: sources.length, done: 0, imported: 0, skipped: 0, scanned: 0,
     current: '', sources: [], error: null,
+    startedBy: String(o.by || '未知'),
   };
 
   for (const s of sources) {

@@ -296,7 +296,7 @@ async function api(req, res, pathname, query) {
 
   if (pathname === '/api/sync/run' && req.method === 'POST') {
     const body = await readBody(req);
-    return send(res, 200, sync.startFullSync({ maxMessages: body.maxMessages }));
+    return send(res, 200, sync.startFullSync({ maxMessages: body.maxMessages, by: body.by || 'API' }));
   }
 
   if (pathname === '/api/source/resolve' && req.method === 'POST') {

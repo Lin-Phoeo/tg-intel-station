@@ -251,6 +251,12 @@ export default function App() {
     setView('favs');
     try { const r = await listFavorites(); setFavPosts(r.items || []); setFavIds(r.ids || []); } catch (e) { setFavPosts([]); }
   }
+  // 所有「一键补齐」的入口都走这里，并记下触发来源。
+  // 之前只有按钮能触发、且不留痕迹，一旦发现数据变多了没法查是哪儿来的。
+  async function startSync(by: string) {
+    try { await runSync(2000, by); } catch (e) {}
+  }
+
   async function runSubCheck() {
     try {
       const r = await checkSubscriptions();
@@ -277,7 +283,10 @@ export default function App() {
     out.push({ id: 'act:src', label: '打开：按链接抓取', group: '操作', run: () => setAddSourceOpen(true) });
     out.push({ id: 'act:ai', label: '打开：AI 情报助手', group: '操作', run: () => { setPanel('chat'); setRightOpen(true); } });
     out.push({ id: 'act:settings', label: '打开：设置', group: '操作', run: () => setSettingsOpen(true) });
-    out.push({ id: 'act:sync', label: '执行：一键补齐（增量同步全部来源）', group: '操作', run: () => { window.dispatchEvent(new CustomEvent('tg:sync')); } });
+    // 之前这里是 dispatchEvent('tg:sync')，但监听它的组件在改版时删掉了，
+    // 导致命令面板里这条命令点了没有任何反应（还查不出原因）。改成直接调用。
+    out.push({ id: 'act:sync', label: '执行：一键补齐（增量同步全部来源）', group: '操作',
+      run: () => { startSync('命令面板'); } });
     out.push({ id: 'act:collapse', label: '切换：合并重复来源（当前 ' + (collapse ? '开' : '关') + '）', group: '操作', run: () => setCollapse(v => !v) });
     out.push({ id: 'act:theme', label: '切换：' + (theme === 'dark' ? '浅色' : '深色') + '主题', group: '操作', run: () => setTheme(theme === 'dark' ? 'light' : 'dark') });
     out.push({ id: 'act:size', label: '切换：卡片密度（当前 ' + size + '）', group: '操作', run: () => setSize(size === 's' ? 'm' : size === 'm' ? 'l' : 's') });
@@ -346,7 +355,7 @@ export default function App() {
 
         <div className="rail-sep" />
         <button className="rail-btn" title="一键补齐：增量抓取全部来源" aria-label="一键补齐"
-          onClick={async () => { try { await runSync(2000); } catch (e) {} }}><RefreshCw size={17} strokeWidth={1.75} /></button>
+          onClick={() => startSync('侧栏按钮')}><RefreshCw size={17} strokeWidth={1.75} /></button>
 
         <span style={{ flex: 1 }} />
 
