@@ -68,7 +68,10 @@ function createSchema() {
   db.exec("CREATE TABLE IF NOT EXISTS app_state(k TEXT PRIMARY KEY, v TEXT)");
   db.exec('CREATE TABLE IF NOT EXISTS embeddings(post_id INTEGER PRIMARY KEY, vec BLOB, dim INTEGER, norm REAL, model TEXT, at TEXT)');
   db.exec("CREATE TABLE IF NOT EXISTS saved_searches(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, params TEXT NOT NULL, created_at TEXT)");
+  db.exec("CREATE TABLE IF NOT EXISTS ai_labels(post_id INTEGER PRIMARY KEY, category TEXT, value REAL, reason TEXT, model TEXT, orig_category TEXT, orig_value REAL, at TEXT)");
   db.exec("CREATE TABLE IF NOT EXISTS saved_searches(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, params TEXT NOT NULL, created_at TEXT)");
+  db.exec("CREATE TABLE IF NOT EXISTS ai_labels(post_id INTEGER PRIMARY KEY, category TEXT, value REAL, reason TEXT, model TEXT, orig_category TEXT, orig_value REAL, at TEXT)");
+  db.exec("CREATE TABLE IF NOT EXISTS ai_labels(post_id INTEGER PRIMARY KEY, category TEXT, value REAL, reason TEXT, model TEXT, orig_category TEXT, orig_value REAL, at TEXT)");
   db.exec('CREATE INDEX IF NOT EXISTS idx_posts_lookup ON posts(channel, msg_id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_posts_cluster ON posts(cluster_key)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_posts_rep ON posts(rep_id)');
@@ -103,6 +106,7 @@ function migrate() {
   db.exec("CREATE TABLE IF NOT EXISTS app_state(k TEXT PRIMARY KEY, v TEXT)");
   db.exec('CREATE TABLE IF NOT EXISTS embeddings(post_id INTEGER PRIMARY KEY, vec BLOB, dim INTEGER, norm REAL, model TEXT, at TEXT)');
   db.exec("CREATE TABLE IF NOT EXISTS saved_searches(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, params TEXT NOT NULL, created_at TEXT)");
+  db.exec("CREATE TABLE IF NOT EXISTS ai_labels(post_id INTEGER PRIMARY KEY, category TEXT, value REAL, reason TEXT, model TEXT, orig_category TEXT, orig_value REAL, at TEXT)");
 }
 
 function ensureSchema() {
@@ -340,6 +344,78 @@ export function markSubscriptionHit(id, count) {
   const d = open();
   d.prepare('UPDATE subscriptions SET last_hit_at = ?, hit_count = hit_count + ? WHERE id = ?')
     .run(new Date().toISOString(), count, Number(id));
+}
+
+// ---------- AI 辅助分类 ----------
+// 规则分类器是关键词打分：多类目得分接近时会选错；
+// 价值分也只是「类目基础分 + 标签加成 + 浏览量」的粗估。
+// 这两件事交给模型判断准得多，但 90 万条全跑不现实，所以要能限定范围。
+function aiCandidateWhere(scope) {
+  const s = scope || {};
+  const parts = ['LENGTH(p.text) >= 40'];
+  if (s.scope === 'other') parts.push("p.category = '其他'");
+  else if (s.scope === 'lowvalue') parts.push('p.value <= 3');
+  else if (s.scope === 'highvalue') parts.push('p.value >= 5');
+  else if (s.scope === 'category' && s.category) parts.push('p.category = ' + JSON.stringify(String(s.category)));
+  if (s.days) parts.push('p.ts >= ' + (Math.floor(Date.now() / 1000) - Number(s.days) * 86400));
+  if (s.minValue != null) parts.push('p.value >= ' + Number(s.minValue));
+  if (s.channel) parts.push('p.channel = ' + JSON.stringify(String(s.channel)));
+  return parts.join(' AND ');
+}
+
+export function countAiCandidates(scope) {
+  const d = open();
+  const r = d.prepare('SELECT COUNT(*) AS n FROM posts p LEFT JOIN ai_labels a ON a.post_id = p.id WHERE a.post_id IS NULL AND ' + aiCandidateWhere(scope)).get();
+  return r ? Number(r.n) : 0;
+}
+
+export function nextAiBatch(scope, limit) {
+  const d = open();
+  return d.prepare('SELECT p.id, p.text, p.category, p.value, p.channel FROM posts p LEFT JOIN ai_labels a ON a.post_id = p.id WHERE a.post_id IS NULL AND ' + aiCandidateWhere(scope) + ' ORDER BY p.value DESC, p.id LIMIT ?')
+    .all(Number(limit || 20))
+    .map(r => ({ id: Number(r.id), text: String(r.text || ''), category: String(r.category || ''), value: Number(r.value) || 0, channel: String(r.channel || '') }));
+}
+
+// 写入标注结果，同时把 posts 上的生效值改掉 ——
+// 这样既有的检索、筛选、排序、索引都不用改就能生效。
+export function saveAiLabels(rows) {
+  const d = open();
+  const ins = d.prepare('INSERT OR REPLACE INTO ai_labels(post_id, category, value, reason, model, orig_category, orig_value, at) VALUES(?,?,?,?,?,?,?,?)');
+  const upd = d.prepare('UPDATE posts SET category = ?, value = ? WHERE id = ?');
+  const at = new Date().toISOString();
+  d.exec('BEGIN');
+  for (const r of rows) {
+    ins.run(r.id, r.category, r.value, r.reason || '', r.model || '', r.orig_category || '', r.orig_value == null ? 0 : r.orig_value, at);
+    upd.run(r.category, r.value, r.id);
+  }
+  d.exec('COMMIT');
+  clearCounts();
+  return rows.length;
+}
+
+export function aiLabelStats() {
+  const d = open();
+  const r = d.prepare('SELECT COUNT(*) AS n FROM ai_labels').get();
+  return { labeled: r ? Number(r.n) : 0 };
+}
+
+export function rollbackAiLabels() {
+  const d = open();
+  const rows = d.prepare('SELECT post_id, orig_category, orig_value FROM ai_labels').all();
+  if (!rows.length) return 0;
+  const upd = d.prepare('UPDATE posts SET category = ?, value = ? WHERE id = ?');
+  d.exec('BEGIN');
+  for (const r of rows) upd.run(r.orig_category, r.orig_value, r.post_id);
+  d.exec('COMMIT');
+  clearCounts();
+  return rows.length;
+}
+
+export function clearAiLabels() {
+  const d = open();
+  const r = d.prepare('DELETE FROM ai_labels').run();
+  clearCounts();
+  return Number(r.changes) || 0;
 }
 
 // ---------- 检索式保存 ----------

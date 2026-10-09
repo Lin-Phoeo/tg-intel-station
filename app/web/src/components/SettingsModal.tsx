@@ -4,6 +4,7 @@ import { ModelSettings } from './ModelSettings';
 import { Bot, Sparkles, Database } from 'lucide-react';
 import { BackupPanel } from './BackupPanel';
 import { SemanticPanel } from './SemanticPanel';
+import { AiClassifyPanel } from './AiClassifyPanel';
 
 export function SettingsModal({ open, onClose, onActiveChange, initialTab }: {
   open: boolean;
@@ -54,6 +55,8 @@ export function SettingsModal({ open, onClose, onActiveChange, initialTab }: {
           <div className="divider" style={{ margin: '22px 0 16px' }} />
           <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>语义检索（向量索引）</div>
           <SemanticPanel />
+          <div className="divider" style={{ margin: '22px 0 16px' }} />
+          <AiClassifyPanel />
           <div className="divider" style={{ margin: '22px 0 16px' }} />
           <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>数据备份</div>
           <BackupPanel />

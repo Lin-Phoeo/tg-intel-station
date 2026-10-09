@@ -10,6 +10,7 @@ import * as source from './source.mjs';
 import * as sync from './sync.mjs';
 import * as backup from './backup.mjs';
 import * as semantic from './semantic.mjs';
+import * as aiClassify from './ai-classify.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const DIST = path.join(ROOT, 'app', 'web', 'dist');
@@ -102,6 +103,32 @@ async function api(req, res, pathname, query) {
   const mClu = pathname.match(/^\/api\/cluster\/(\d+)$/);
   if (mClu) return send(res, 200, { items: store.clusterMembers(mClu[1]) });
 
+  // ---------- AI 辅助分类 ----------
+  if (pathname === '/api/ai-classify/status') return send(res, 200, aiClassify.getStatus());
+  if (pathname === '/api/ai-classify/preview') {
+    const q = query || {};
+    const scope = {
+      scope: q.scope || 'other', category: q.category || '',
+      days: Number(q.days || 0) || 0,
+      // minValue 之前没往下传，导致「仅价值分 ≥3 的」这个默认范围失效，
+      // 「其他」全部 21 万条都被算进去，预计耗时直接显示成 32 天。
+      minValue: q.minValue === undefined || q.minValue === '' ? null : Number(q.minValue),
+    };
+    return send(res, 200, { items: aiClassify.preview(scope, Number(q.n || 5)), candidates: store.countAiCandidates(scope) });
+  }
+  if (pathname === '/api/ai-classify/start' && req.method === 'POST') {
+    const body = await readBody(req).catch(() => ({}));
+    const scope = {
+      scope: body.scope || 'other', category: body.category || '',
+      days: Number(body.days || 0) || 0,
+      minValue: body.minValue === undefined || body.minValue === null || body.minValue === '' ? null : Number(body.minValue),
+    };
+    if (!ai.hasKey()) return send(res, 200, { ok: false, error: '还没配置 AI 模型，先去「AI 模型」里填一个可用的服务商' });
+    return send(res, 200, aiClassify.startClassify({ scope: scope, limit: Number(body.limit || 0) }));
+  }
+  if (pathname === '/api/ai-classify/stop' && req.method === 'POST') return send(res, 200, { ok: aiClassify.requestStop() });
+  if (pathname === '/api/ai-classify/rollback' && req.method === 'POST') return send(res, 200, { ok: true, restored: store.rollbackAiLabels() });
+  if (pathname === '/api/ai-classify/clear' && req.method === 'POST') return send(res, 200, { ok: true, removed: store.clearAiLabels() });
   // ---------- 检索式保存 ----------
   if (pathname === '/api/searches') {
     if (req.method === 'GET') return send(res, 200, { items: store.listSavedSearches() });

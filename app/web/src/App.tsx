@@ -65,6 +65,10 @@ export default function App() {
   const [panel, setPanel] = useState<'chat' | 'detail'>('chat');
   const [rightOpen, setRightOpen] = useState(true);
   const [favIds, setFavIds] = useState<number[]>([]);
+  // 收藏的标签与备注。接口一直支持（favorites.tags / note），但界面从没用过 ——
+  // 收藏进来就只能是一坨，没法按自己的维度归类。
+  const [favMeta, setFavMeta] = useState<Record<number, { tags: string[]; note: string }>>({});
+  const [favTagFilter, setFavTagFilter] = useState('');
   const [subsOpen, setSubsOpen] = useState(false);
   const [newSince, setNewSince] = useState(0);       // 上次访问以来的新内容条数
   const [sinceFilter, setSinceFilter] = useState(0); // 当前是否只看新内容
@@ -102,6 +106,7 @@ export default function App() {
       try {
         const r = await listFavorites();
         setFavIds(r.ids || []);
+        setFavMeta(buildFavMeta(r.items || []));
         if (!(r.ids || []).length) {
           let old: number[] = [];
           try { old = JSON.parse(localStorage.getItem('tg.favs') || '[]'); } catch (e) {}
@@ -225,6 +230,19 @@ export default function App() {
   }
   const [providers, setProviders] = useState<{ id: string; name: string; hasKey: boolean }[]>([]);
   const [activeId, setActiveId] = useState('');
+  function buildFavMeta(items: any[]) {
+    const m: Record<number, { tags: string[]; note: string }> = {};
+    for (const p of items) m[p.id] = { tags: p.favTags || [], note: p.favNote || '' };
+    return m;
+  }
+  async function refreshFavMeta() {
+    try { const r = await listFavorites(); setFavMeta(buildFavMeta(r.items || [])); } catch (e) {}
+  }
+  async function setFavTags(p: Post, tags: string[]) {
+    setFavMeta(prev => ({ ...prev, [p.id]: { tags: tags, note: (prev[p.id] || {}).note || '' } }));
+    try { await addFavorite(p.id, tags, (favMeta[p.id] || {}).note || ''); } catch (e) {}
+  }
+
   function refreshProviders() {
     getSettings().then(r => { setProviders(r.settings.profiles || []); setActiveId(r.settings.activeId || ''); }).catch(() => {});
   }
@@ -342,7 +360,10 @@ export default function App() {
   function toggleFav(p: Post) {
     const on = favIds.includes(p.id);
     setFavIds(prev => on ? prev.filter(x => x !== p.id) : prev.concat([p.id]));
-    (on ? removeFavorite(p.id) : addFavorite(p.id)).then(r => { if (r && r.ids) setFavIds(r.ids); }).catch(() => {});
+    const keepTags = (favMeta[p.id] || {}).tags || [];
+    (on ? removeFavorite(p.id) : addFavorite(p.id, keepTags, (favMeta[p.id] || {}).note || ''))
+      .then(r => { if (r && r.ids) setFavIds(r.ids); if (!on) refreshFavMeta(); })
+      .catch(() => {});
   }
   async function showFavs() {
     setView('favs');
@@ -368,7 +389,14 @@ export default function App() {
   function ask(p: Post) { setAskPost(p); setPanel('chat'); setRightOpen(true); }
 
   const terms = useMemo(() => dq.split(/\s+/).filter(Boolean), [dq]);
-  const shown = view === 'favs' ? favPosts : items;
+  const favAllTags = (() => {
+    const m = new Map<string, number>();
+    for (const id of favIds) for (const t of ((favMeta[id] || {}).tags || [])) m.set(t, (m.get(t) || 0) + 1);
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  })();
+  const shown = view === 'favs'
+    ? (favTagFilter ? favPosts.filter(p => ((favMeta[p.id] || {}).tags || []).includes(favTagFilter)) : favPosts)
+    : items;
 
   // ---------- 命令面板 ----------
   const commands = useMemo<Cmd[]>(() => {
@@ -538,6 +566,21 @@ export default function App() {
           </div>
         )}
 
+        {view === 'favs' && favAllTags.length > 0 && (
+          <div className="surface catbar" style={{ borderBottom: '1px solid var(--border-soft)' }}>
+            <span className="catbar-label">我的标签</span>
+            <span className={'chip' + (!favTagFilter ? ' on' : '')} onClick={() => setFavTagFilter('')}>
+              全部<span className="cn">{favIds.length}</span>
+            </span>
+            {favAllTags.map(([t, n]) => (
+              <span key={t} className={'chip' + (favTagFilter === t ? ' on' : '')}
+                onClick={() => setFavTagFilter(favTagFilter === t ? '' : t)}>
+                {t}<span className="cn">{n}</span>
+              </span>
+            ))}
+          </div>
+        )}
+
         <div className="surface" style={{ borderBottom: '1px solid var(--border-soft)', padding: '8px 16px' }}>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 9, flexWrap: 'wrap' }}>
@@ -622,7 +665,8 @@ export default function App() {
             {panel === 'chat'
               ? <ChatPanel filters={filters} pendingPost={askPost} onConsumePending={() => setAskPost(null)} onOpenPost={openById} />
               : (sel
-                ? <div style={{ height: '100%', overflowY: 'auto' }}><Detail post={sel} rel={rel} relBy={relBy} cluster={cluster} fav={favIds.includes(sel.id)} onFav={toggleFav} onOpen={openPost} onAsk={ask} /></div>
+                ? <div style={{ height: '100%', overflowY: 'auto' }}><Detail post={sel} rel={rel} relBy={relBy} cluster={cluster} fav={favIds.includes(sel.id)}
+              favTags={(favMeta[sel.id] || {}).tags || []} onSetTags={setFavTags} onFav={toggleFav} onOpen={openPost} onAsk={ask} /></div>
                 : <div style={{ padding: 30, color: 'var(--fg-mute)', textAlign: 'center' }}>从左侧点开任意一条查看详情</div>)}
           </div>
         </aside>

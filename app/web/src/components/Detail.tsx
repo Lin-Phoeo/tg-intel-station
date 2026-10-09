@@ -1,11 +1,22 @@
-import { Star } from 'lucide-react';
+import { useState } from 'react';
+import { Star, Tag, X } from 'lucide-react';
 import { Post } from '../api';
 import { catColor, timeAgo, fmtNum } from '../lib/util';
 
-export function Detail({ post, rel, relBy, cluster, fav, onFav, onOpen, onAsk }: {
+export function Detail({ post, rel, relBy, cluster, fav, favTags, onFav, onSetTags, onOpen, onAsk }: {
   post: Post; rel: Post[]; relBy?: string; cluster?: Post[]; fav: boolean;
-  onFav: (p: Post) => void; onOpen: (p: Post) => void; onAsk: (p: Post) => void;
+  favTags?: string[]; onFav: (p: Post) => void;
+  onSetTags?: (p: Post, tags: string[]) => void;
+  onOpen: (p: Post) => void; onAsk: (p: Post) => void;
 }) {
+  const [tagInput, setTagInput] = useState('');
+  const tags = favTags || [];
+  function addTag() {
+    const t = tagInput.trim().slice(0, 12);
+    if (!t || !onSetTags) return;
+    if (tags.indexOf(t) < 0) onSetTags(post, tags.concat([t]));
+    setTagInput('');
+  }
   const c = catColor(post.category);
   const allLinks = Array.from(new Set([...(post.links || [])]));
   return (
@@ -17,6 +28,25 @@ export function Detail({ post, rel, relBy, cluster, fav, onFav, onOpen, onAsk }:
         <button className="btn ghost" title={fav ? '取消收藏' : '收藏'} onClick={() => onFav(post)} style={{ color: fav ? 'var(--amber)' : 'var(--fg-dim)' }}>
           <Star size={14} strokeWidth={1.75} fill={fav ? 'currentColor' : 'none'} />{fav ? '已收藏' : '收藏'}
         </button>
+      </div>
+
+      {fav && onSetTags && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+          <Tag size={12} strokeWidth={1.75} style={{ color: 'var(--fg-mute)' }} />
+          {tags.map(t => (
+            <span key={t} className="chip on" style={{ padding: '1px 8px', fontSize: 'var(--fs-micro)' }}>
+              {t}
+              <X size={10} strokeWidth={2.5} onClick={() => onSetTags(post, tags.filter(x => x !== t))} />
+            </span>
+          ))}
+          <input value={tagInput} onChange={e => setTagInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTag(); } }}
+            placeholder="加标签…" spellCheck={false}
+            style={{ width: 92, padding: '2px 8px', fontSize: 'var(--fs-micro)', height: 22 }} />
+        </div>
+      )}
+
+      <div style={{ display: 'none' }}>
       </div>
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
