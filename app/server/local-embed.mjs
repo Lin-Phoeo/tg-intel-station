@@ -1,10 +1,15 @@
-// 本机内置向量模型：用 transformers.js 在 Node 进程里直接推理。
-// 不需要注册、不需要 API Key、不联网（模型下载一次后离线可用）。
+// 本机内置向量模型：用 transformers.js 推理，不需要注册、不需要 API Key，
+// 模型下载一次后完全离线可用。
+//
+// 推理跑在独立的 worker 线程里（见 embed-worker.mjs）：
+// ONNX 推理是 CPU 密集型的，留在主线程会把事件循环卡住，
+// 导致构建索引期间整个 HTTP API 变慢、对外请求超时。
 //
 // 依赖是可选安装的：没有装 @huggingface/transformers 时，
 // 这里会给出明确提示，而不是让整个服务崩掉。
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { Worker } from 'node:worker_threads';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -26,44 +31,54 @@ export function localModelName(model) {
   return String(model || '').trim() || DEFAULT_LOCAL_MODEL;
 }
 
-let pipe = null;
-let pipeModel = '';
-let loading = null;
+let worker = null;
+let seq = 0;
+let lastModel = '';
+const waiting = new Map();
 
-async function loadTransformers() {
-  try {
-    return await import('@huggingface/transformers');
-  } catch (e) {
-    const err = new Error('没有安装本机向量依赖。在项目根目录执行：npm install @huggingface/transformers');
-    err.hint = 'npm install @huggingface/transformers';
-    throw err;
-  }
+function ensureWorker() {
+  if (worker) return worker;
+  worker = new Worker(new URL('./embed-worker.mjs', import.meta.url));
+  worker.on('message', (m) => {
+    const w = waiting.get(m.id);
+    if (!w) return;
+    waiting.delete(m.id);
+    if (m.ok) { if (m.model) lastModel = m.model; w.resolve(m); }
+    else w.reject(new Error(m.error || '嵌入推理失败'));
+  });
+  worker.on('error', (e) => {
+    for (const w of waiting.values()) w.reject(e);
+    waiting.clear();
+    worker = null;
+  });
+  worker.on('exit', () => {
+    // 线程退出时把还挂着的请求失败掉，下次调用会自动重建
+    for (const w of waiting.values()) w.reject(new Error('嵌入线程已退出'));
+    waiting.clear();
+    worker = null;
+  });
+  worker.unref();
+  return worker;
 }
 
-// 同一时刻只允许一个加载过程，避免并发重复下载
-async function getPipeline(model) {
-  if (pipe && pipeModel === model) return pipe;
-  if (loading && pipeModel === model) return loading;
-  pipeModel = model;
-  loading = (async () => {
-    const tf = await loadTransformers();
-    tf.env.cacheDir = process.env.HF_CACHE_DIR || path.join(ROOT, 'app', 'data', 'models');
-    tf.env.allowRemoteModels = true;
-    const p = await tf.pipeline('feature-extraction', model, { dtype: 'fp32' });
-    pipe = p;
-    loading = null;
-    return p;
-  })();
-  return loading;
+function call(payload, timeoutMs) {
+  const w = ensureWorker();
+  const id = ++seq;
+  return new Promise((resolve, reject) => {
+    waiting.set(id, { resolve, reject });
+    w.postMessage(Object.assign({ id }, payload));
+    setTimeout(() => {
+      if (waiting.has(id)) { waiting.delete(id); reject(new Error('嵌入推理超时')); }
+    }, timeoutMs || 300000);
+  });
 }
 
 export async function localEmbed(texts, model) {
   const m = localModelName(model);
-  const p = await getPipeline(m);
-  const out = await p(texts, { pooling: 'cls', normalize: true });
-  return { vectors: out.tolist(), model: m, url: 'local' };
+  const r = await call({ type: 'embed', texts: texts, model: m });
+  return { vectors: r.vectors, model: r.model || m, url: 'local' };
 }
 
 export function localStatus() {
-  return { loaded: !!pipe, model: pipeModel || '', models: LOCAL_MODELS };
+  return { loaded: !!worker && !!lastModel, model: lastModel, models: LOCAL_MODELS, threaded: true };
 }

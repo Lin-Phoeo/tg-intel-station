@@ -525,7 +525,12 @@ export async function rerank(query, documents, cfg) {
     for (const url of urls) {
       const merged = [];
       let usable = true;
-      for (const ch of chunks) {
+      // 分批之间彼此独立，并行发出去。串行时 60 条召回要跑 3 批，
+      // 实测最慢一次 33 秒；并行后快得多。并发上限 4，避免被限流。
+      const CONC = 4;
+      for (let ci = 0; ci < chunks.length; ci += CONC) {
+        const group = chunks.slice(ci, ci + CONC);
+        const parts = await Promise.all(group.map(async (ch) => {
         let list = null, gaveUp = null;
         // 网络层失败（代理抖动、连接被重置）常见且瞬时，重试 2 次再放弃
         for (let attempt = 0; attempt < 3 && !list; attempt++) {
@@ -553,8 +558,13 @@ export async function rerank(query, documents, cfg) {
             else errors.push(gaveUp + '（已重试 2 次）');
           }
         }
-        if (!list) { usable = false; break; }
-        for (const it of list) merged.push({ index: ch.offset + it.index, score: it.score });
+        return { ok: !!list, list: list || [], offset: ch.offset };
+        }));
+        for (const pt of parts) {
+          if (!pt.ok) { usable = false; break; }
+          for (const it of pt.list) merged.push({ index: pt.offset + it.index, score: it.score });
+        }
+        if (!usable) break;
       }
       if (usable && merged.length) {
         return { results: merged.sort((a, b) => b.score - a.score), model: model, url: url, chunks: chunks.length };
