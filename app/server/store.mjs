@@ -45,6 +45,7 @@ export function insertPost(rec) {
   d.prepare('INSERT INTO posts_fts(rowid, text, tags, domains, channel) VALUES(?,?,?,?,?)').run(
     id, rec.text || '', rec.tags || '', rec.domains || '', rec.channel
   );
+  countCache = { n: 0, at: 0 };
   return { inserted: true, id: id };
 }
 
@@ -216,11 +217,23 @@ export function related(id, limit = 8) {
   return rows.map(rowToPost);
 }
 
+// 实时行数（30 秒缓存）：增量导入后总数会变，不能再用建库时写死的 meta.count
+let countCache = { n: 0, at: 0 };
+export function liveCount() {
+  if (Date.now() - countCache.at < 30000) return countCache.n;
+  const d = open();
+  const r = d.prepare('SELECT COUNT(*) AS n FROM posts').get();
+  countCache = { n: r ? r.n : 0, at: Date.now() };
+  return countCache.n;
+}
+export function invalidateCount() { countCache = { n: 0, at: 0 }; }
+
 export function facets() {
   const d = open();
   const cats = d.prepare('SELECT category AS k, COUNT(*) AS n FROM posts GROUP BY category ORDER BY n DESC').all();
-  const chans = d.prepare('SELECT channel AS k, COUNT(*) AS n FROM posts GROUP BY channel ORDER BY n DESC').all();
+  const chans = d.prepare('SELECT channel AS k, COUNT(*) AS n FROM posts GROUP BY channel ORDER BY n DESC LIMIT 60').all();
   const meta = Object.fromEntries(d.prepare('SELECT k,v FROM meta').all().map(r => [r.k, r.v]));
+  meta.count = String(liveCount());
   return { categories: cats, channels: chans, meta };
 }
 
