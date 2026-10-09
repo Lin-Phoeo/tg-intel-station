@@ -339,8 +339,20 @@ export function setState(k, v) {
 export function embedStats() {
   const d = open();
   const r = d.prepare('SELECT COUNT(*) AS n, MIN(dim) AS dim, MAX(model) AS model FROM embeddings').get();
-  const total = d.prepare('SELECT COUNT(*) AS n FROM posts WHERE value >= ?').get(4);
+  const total = d.prepare('SELECT COUNT(*) AS n FROM posts p WHERE ' + EMBED_WHERE).get();
   return { indexed: r ? Number(r.n) : 0, dim: r && r.dim ? Number(r.dim) : 0, model: (r && r.model) || '', eligible: total ? Number(total.n) : 0 };
+}
+
+// 「可向量化」的判定条件。必须只有这一处定义 ——
+// 之前 eligible 用「value >= 4」，取帖子用「value >= 4 且正文 >= 15 字」，
+// 两边不一致，导致正文过短的帖子既算进分母又永远取不出来，
+// 界面的「剩余 N 条」永远归不了零，一直卡在「待继续」。
+const EMBED_WHERE = 'p.value >= 4 AND LENGTH(p.text) >= 15';
+
+export function embedEligibleCount() {
+  const d = open();
+  const r = d.prepare('SELECT COUNT(*) AS n FROM posts p WHERE ' + EMBED_WHERE).get();
+  return r ? Number(r.n) : 0;
 }
 
 // 取还需要向量化的帖子。只做价值分达标的，避免给 87 万条全量算。
