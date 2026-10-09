@@ -121,11 +121,16 @@ async function api(req, res, pathname, query) {
   }
   if (pathname === '/api/ai-classify/start' && req.method === 'POST') {
     const body = await readBody(req).catch(() => ({}));
-    const scope = {
-      scope: body.scope || 'other', category: body.category || '',
-      days: Number(body.days || 0) || 0,
-      minValue: body.minValue === undefined || body.minValue === null || body.minValue === '' ? null : Number(body.minValue),
-    };
+    // 兼容两种传法：扁平参数，或者一个嵌套的 scope 对象。
+    // 之前只认扁平写法，而界面传的是 { scope: {...} }，
+    // 结果 s.scope 拿到的是对象、范围判断全部失效 —— 点「开始标注」会静默变成全库任务。
+    const scope = (body.scope && typeof body.scope === 'object')
+      ? Object.assign({}, body.scope)
+      : {
+          scope: body.scope || 'other', category: body.category || '',
+          days: Number(body.days || 0) || 0,
+          minValue: body.minValue === undefined || body.minValue === null || body.minValue === '' ? null : Number(body.minValue),
+        };
     if (!ai.hasKey()) return send(res, 200, { ok: false, error: '还没配置 AI 模型，先去「AI 模型」里填一个可用的服务商' });
     return send(res, 200, aiClassify.startClassify({ scope: scope, limit: Number(body.limit || 0) }));
   }

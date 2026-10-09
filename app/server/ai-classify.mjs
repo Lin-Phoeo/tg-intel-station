@@ -179,6 +179,11 @@ export function startClassify(opts) {
   if (state.running) return { ok: false, error: '已有标注任务在进行中' };
   const scope = (opts && opts.scope) || { scope: 'other' };
   const total = store.countAiCandidates(scope);
+  // 兜底：候选数超过一个量级就说明范围条件没生效，
+  // 宁可拒绝启动，也不要静默跑一个几十万条的巨任务。
+  if (total > 50000 && (!opts || !opts.confirmed)) {
+    return { ok: false, error: '这次范围有 ' + total.toLocaleString() + ' 条，超出常规。请确认范围条件是否正确' };
+  }
   const limit = Number((opts && opts.limit) || 0);
   runClassify(opts).catch(e => {
     state.running = false;
