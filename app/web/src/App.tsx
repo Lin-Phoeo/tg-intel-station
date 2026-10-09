@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Zap, Radio, Star, Sparkles, Link2, Bell, Search, X, Settings, FileText,
-  Sun, Moon, Type, PanelRightClose,
+  Sun, Moon, Type, PanelRightClose, RefreshCw, SlidersHorizontal,
 } from 'lucide-react';
 import {
   search as searchApi, facets as facetsApi, getPost, related as relApi, getSettings, getClusterMembers,
-  listFavorites, addFavorite, removeFavorite, getState, setState, checkSubscriptions, semanticQuery,
+  listFavorites, addFavorite, removeFavorite, getState, setState, checkSubscriptions, semanticQuery, runSync,
 } from './api';
 import type { Post, Facets } from './api';
 import { PostCard } from './components/PostCard';
@@ -13,8 +13,7 @@ import { Detail } from './components/Detail';
 import { ChatPanel } from './components/ChatPanel';
 import { SettingsModal } from './components/SettingsModal';
 import { AddSourceModal } from './components/AddSourceModal';
-import { SyncButton } from './components/SyncButton';
-import { TaskProgress } from './components/TaskProgress';
+import { TopProgress } from './components/TopProgress';
 import { SubscriptionsModal } from './components/SubscriptionsModal';
 import { CommandPalette } from './components/CommandPalette';
 import type { Cmd } from './components/CommandPalette';
@@ -69,6 +68,7 @@ export default function App() {
   const [semantic, setSemantic] = useState(() => localStorage.getItem('tg.semantic') === '1');
   const [semanticNote, setSemanticNote] = useState('');
   const [useRerank, setUseRerank] = useState(() => localStorage.getItem('tg.rerank') !== '0');
+  const [showFilters, setShowFilters] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [cursor, setCursor] = useState(0);           // 键盘选中的卡片下标
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -304,73 +304,41 @@ export default function App() {
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--bg)' }}>
-      {/* ---------- sidebar ---------- */}
-      <aside className="surface" style={{ width: 248, flexShrink: 0, borderRight: '1px solid var(--border-soft)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div style={{ padding: '16px 16px 12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-            <div style={{ width: 28, height: 28, borderRadius: 'var(--r-md)', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Zap size={15} color="#fff" strokeWidth={2} /></div>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 'var(--fs-card)', letterSpacing: '.01em' }}>电报情报站</div>
-              <div style={{ fontSize: 'var(--fs-micro)', color: 'var(--fg-mute)' }}>{'技术线报 · 项目雷达'}</div>
-            </div>
-          </div>
-        </div>
+      {/* ---------- 图标导航条 ---------- */}
+      {/* 从 248px 侧栏改为 56px 图标条：导航不再和分类抢垂直空间，
+          分类移到主内容区顶部的筛选条。 */}
+      <aside className="rail">
+        <div className="rail-logo" title="电报情报站"><Zap size={15} color="#fff" strokeWidth={2.2} /></div>
 
-        <div style={{ padding: '4px 10px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <button className="btn ghost" style={{ justifyContent: 'flex-start', background: view === 'feed' ? 'var(--bg-3)' : 'transparent', color: view === 'feed' ? 'var(--fg)' : 'var(--fg-dim)' }} onClick={() => { setView('feed'); setCat(''); setTags([]); setChannel(''); setQ(''); }}><Radio size={15} strokeWidth={1.75} /> 全部信息流</button>
-          <button className="btn ghost" style={{ justifyContent: 'flex-start', background: view === 'favs' ? 'var(--bg-3)' : 'transparent', color: view === 'favs' ? 'var(--fg)' : 'var(--fg-dim)' }} onClick={showFavs}><Star size={15} strokeWidth={1.75} />{'我的收藏' + (favIds.length ? ' (' + favIds.length + ')' : '')}</button>
-          <button className="btn ghost" style={{ justifyContent: 'flex-start' }} onClick={() => { setPanel('chat'); setRightOpen(true); }}><Sparkles size={15} strokeWidth={1.75} /> AI 情报助手</button>
-          <button className="btn ghost" style={{ justifyContent: 'flex-start' }} onClick={() => setAddSourceOpen(true)}><Link2 size={15} strokeWidth={1.75} /> 按链接抓取</button>
-          <button className="btn ghost" style={{ justifyContent: 'flex-start' }} onClick={() => setSubsOpen(true)}>
-            <Bell size={15} strokeWidth={1.75} />{'关键词订阅'}{(topKw.length ? ' · ' + topKw.length : '')}
-          </button>
-        </div>
+        <button className={'rail-btn' + (view === 'feed' ? ' on' : '')} title="全部信息流"
+          onClick={() => { setView('feed'); setCat(''); setTags([]); setChannel(''); setQ(''); }}><Radio size={17} strokeWidth={1.75} /></button>
+        <button className={'rail-btn' + (view === 'favs' ? ' on' : '')} title={'我的收藏' + (favIds.length ? '（' + favIds.length + ' 条）' : '')}
+          onClick={showFavs}><Star size={17} strokeWidth={1.75} /></button>
+        <button className={'rail-btn' + (rightOpen && panel === 'chat' ? ' on' : '')} title="AI 情报助手"
+          onClick={() => { setPanel('chat'); setRightOpen(true); }}><Sparkles size={17} strokeWidth={1.75} /></button>
+        <button className="rail-btn" title="按链接抓取" onClick={() => setAddSourceOpen(true)}><Link2 size={17} strokeWidth={1.75} /></button>
+        <button className="rail-btn" title={'关键词订阅' + (topKw.length ? '（' + topKw.length + ' 个命中）' : '')}
+          onClick={() => setSubsOpen(true)}><Bell size={17} strokeWidth={1.75} /></button>
 
-        <SyncButton onDone={() => { facetsApi().then(setFac); load(1); }} />
-        <TaskProgress />
+        <div className="rail-sep" />
+        <button className="rail-btn" title="一键补齐：增量抓取全部来源"
+          onClick={async () => { try { await runSync(2000); } catch (e) {} }}><RefreshCw size={17} strokeWidth={1.75} /></button>
 
-        <div className="divider" style={{ margin: '10px 0' }} />
-        <div style={{ flex: 1, overflowY: 'auto', padding: '0 10px 20px' }}>
-          <div style={{ fontSize: 11.5, color: 'var(--fg-mute)', padding: '0 6px 6px', letterSpacing: '.08em' }}>分类</div>
-          <button className="btn ghost" style={{ justifyContent: 'space-between', width: '100%', background: !cat ? 'var(--bg-3)' : 'transparent', color: !cat ? 'var(--fg)' : 'var(--fg-dim)' }} onClick={() => setCat('')}><span>全部分类</span><span style={{ fontSize: 11.5 }}>{fac ? fmtNum(fac.meta.count ? Number(fac.meta.count) : 0) : ''}</span></button>
-          {fac && fac.categories.slice().sort((a, b) => catRank(a.k) - catRank(b.k)).map(c => (
-            <button key={c.k} className="btn ghost" style={{ justifyContent: 'space-between', width: '100%', background: cat === c.k ? 'var(--bg-3)' : 'transparent', color: cat === c.k ? 'var(--fg)' : 'var(--fg-dim)' }} onClick={() => setCat(cat === c.k ? '' : c.k)}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                <span style={{ width: 7, height: 7, borderRadius: 4, background: catColor(c.k) }} />
-                {c.k}
-              </span>
-              <span style={{ fontSize: 11.5, color: 'var(--fg-mute)' }}>{fmtNum(c.n)}</span>
-            </button>
-          ))}
+        <span style={{ flex: 1 }} />
 
-          <div style={{ fontSize: 11.5, color: 'var(--fg-mute)', padding: '16px 6px 6px', letterSpacing: '.08em' }}>热门标签</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '0 4px' }}>
-            {fac && fac.tags.slice(0, 22).map(t => (
-              <span key={t.k} className={'chip' + (tags.includes(t.k) ? ' on' : '')} onClick={() => setTags(prev => prev.includes(t.k) ? prev.filter(x => x !== t.k) : prev.concat([t.k]))}>{t.k}</span>
-            ))}
-          </div>
-
-          <div style={{ fontSize: 11.5, color: 'var(--fg-mute)', padding: '16px 6px 6px', letterSpacing: '.08em' }}>频道</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '0 4px' }}>
-            {fac && fac.channels.map(c => (
-              <span key={c.k} className={'chip' + (channel === c.k ? ' on' : '')} onClick={() => setChannel(channel === c.k ? '' : c.k)}>{'@' + c.k}</span>
-            ))}
-          </div>
-        </div>
-
-        <div style={{ borderTop: '1px solid var(--border-soft)', padding: 10, display: 'flex', gap: 6 }}>
-          <button className="btn ghost" style={{ flex: 1 }} onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
-            {theme === 'dark' ? <Sun size={14} strokeWidth={1.75} /> : <Moon size={14} strokeWidth={1.75} />}
-            {theme === 'dark' ? '浅色' : '深色'}
-          </button>
-          <button className="btn ghost" title="字号" onClick={() => setSize(size === 'm' ? 'l' : size === 'l' ? 's' : 'm')}><Type size={14} strokeWidth={1.75} /></button>
-          <button className="btn ghost" title="设置" onClick={() => setSettingsOpen(true)}><Settings size={15} strokeWidth={1.75} /></button>
-        </div>
+        <button className="rail-btn" title={theme === 'dark' ? '切换到浅色' : '切换到深色'}
+          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? <Sun size={17} strokeWidth={1.75} /> : <Moon size={17} strokeWidth={1.75} />}</button>
+        <button className="rail-btn" title={'字号：' + (size === 's' ? '紧凑' : size === 'l' ? '宽松' : '舒适')}
+          onClick={() => setSize(size === 'm' ? 'l' : size === 'l' ? 's' : 'm')}><Type size={17} strokeWidth={1.75} /></button>
+        <button className="rail-btn" title="设置" onClick={() => setSettingsOpen(true)}><Settings size={17} strokeWidth={1.75} /></button>
       </aside>
+
+
 
       {/* ---------- main ---------- */}
       <main style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div className="surface" style={{ borderBottom: '1px solid var(--border-soft)', padding: '12px 18px' }}>
+        <TopProgress />
+        <div className="surface" style={{ borderBottom: '1px solid var(--border-soft)', padding: '12px 16px 0' }}>
           <div style={{ display: 'flex', gap: 9, alignItems: 'center', flexWrap: 'wrap' }}>
             <div style={{ position: 'relative', flex: 1, minWidth: 260 }}>
               <input ref={searchRef} value={q} onChange={e => setQ(e.target.value)} placeholder="搜索 85 万条帖子：免费 VPS、GitHub、AI 中转站、副业…  （按 / 聚焦）" style={{ width: '100%', paddingLeft: 34, height: 38 }} />
@@ -386,6 +354,43 @@ export default function App() {
             )}
             <button className={'btn' + (rightOpen && panel === 'chat' ? ' primary' : '')} style={{ height: 38 }} onClick={() => { setPanel('chat'); setRightOpen(true); }}><Sparkles size={14} strokeWidth={1.75} /> AI 助手</button>
           </div>
+        </div>
+
+        {/* 分类筛选条：从侧栏移到这里。横向滚动，不占垂直空间，
+            也不会再把分类列表挤下去。 */}
+        <div className="surface catbar">
+          <span className={'chip' + (!cat ? ' on' : '')} onClick={() => setCat('')}>
+            全部<span className="cn">{fac ? fmtNum(Number(fac.meta.count || 0)) : ''}</span>
+          </span>
+          {fac && fac.categories.slice().sort((a, b) => catRank(a.k) - catRank(b.k)).map(c => (
+            <span key={c.k} className={'chip' + (cat === c.k ? ' on' : '')} onClick={() => setCat(cat === c.k ? '' : c.k)}>
+              <span className="cdot" style={{ background: catColor(c.k) }} />{c.k}<span className="cn">{fmtNum(c.n)}</span>
+            </span>
+          ))}
+          <span style={{ flex: 1, minWidth: 12 }} />
+          <span className={'chip' + (showFilters ? ' on' : '')} onClick={() => setShowFilters(v => !v)} title="展开标签与频道筛选">
+            <SlidersHorizontal size={12} strokeWidth={2} />筛选
+            {(tags.length + (channel ? 1 : 0)) > 0 ? <span className="cn">{tags.length + (channel ? 1 : 0)}</span> : null}
+          </span>
+        </div>
+
+        {showFilters && (
+          <div className="surface catbar" style={{ borderTop: '1px solid var(--border-soft)', paddingTop: 9, paddingBottom: 11 }}>
+            <span className="catbar-label">标签</span>
+            {fac && fac.tags.slice(0, 20).map(t => (
+              <span key={t.k} className={'chip' + (tags.includes(t.k) ? ' on' : '')}
+                onClick={() => setTags(prev => prev.includes(t.k) ? prev.filter(x => x !== t.k) : prev.concat([t.k]))}>{t.k}</span>
+            ))}
+            <span className="catbar-gap" />
+            <span className="catbar-label">频道</span>
+            {fac && fac.channels.map(c => (
+              <span key={c.k} className={'chip' + (channel === c.k ? ' on' : '')}
+                onClick={() => setChannel(channel === c.k ? '' : c.k)}>{'@' + c.k}</span>
+            ))}
+          </div>
+        )}
+
+        <div className="surface" style={{ borderBottom: '1px solid var(--border-soft)', padding: '8px 16px' }}>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 9, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12.5, color: 'var(--fg-dim)' }}>
@@ -450,7 +455,7 @@ export default function App() {
 
       {/* ---------- right panel ---------- */}
       {rightOpen && (
-        <aside className="surface" style={{ width: 500, flexShrink: 0, borderLeft: '1px solid var(--border-soft)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <aside className="surface" style={{ width: 440, flexShrink: 0, borderLeft: '1px solid var(--border-soft)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '8px 10px', borderBottom: '1px solid var(--border-soft)' }}>
             <button className={'btn ghost' + (panel === 'chat' ? '' : '')} style={{ background: panel === 'chat' ? 'var(--bg-3)' : 'transparent', color: panel === 'chat' ? 'var(--fg)' : 'var(--fg-dim)' }} onClick={() => setPanel('chat')}><Sparkles size={14} strokeWidth={1.75} /> AI 助手</button>
             <button className="btn ghost" style={{ background: panel === 'detail' ? 'var(--bg-3)' : 'transparent', color: panel === 'detail' ? 'var(--fg)' : 'var(--fg-dim)' }} onClick={() => setPanel('detail')} disabled={!sel}><FileText size={14} strokeWidth={1.75} /> 详情</button>
