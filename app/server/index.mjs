@@ -203,7 +203,24 @@ async function api(req, res, pathname, query) {
   }
 
   const mRel = pathname.match(/^\/api\/related\/(\d+)$/);
-  if (mRel) return send(res, 200, { items: store.related(mRel[1], 8) });
+  if (mRel) {
+    const id = Number(mRel[1]);
+    // 优先用向量找相似（换说法也能命中）。
+    // 没建索引、或这条本身没向量时返回 null，再回退到关键词方案。
+    let sim = null;
+    try { sim = semantic.similarPosts(id, 8); } catch (e) { sim = null; }
+    if (sim && sim.length) {
+      const posts = store.getPostsByIds(sim.map(h => h.id));
+      const byId = {};
+      for (const p of posts) byId[p.id] = p;
+      const items = sim.map(h => {
+        const p = byId[h.id];
+        return p ? Object.assign({ sim: +h.score.toFixed(4) }, p) : null;
+      }).filter(Boolean);
+      if (items.length) return send(res, 200, { items: items, by: 'vector' });
+    }
+    return send(res, 200, { items: store.related(id, 8), by: 'keyword' });
+  }
 
   if (pathname === '/api/settings') {
     if (req.method === 'GET') return send(res, 200, { settings: ai.publicSettings(), presets: ai.PRESETS, active: ai.activeProfile() ? ai.activeProfile().name : '' });

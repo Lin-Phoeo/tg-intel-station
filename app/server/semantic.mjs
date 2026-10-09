@@ -56,6 +56,25 @@ export function getStatus() {
 
 function invalidate() { vecCache = null; }
 
+// 基于向量的「相似帖子」。
+//
+// 之前「相关内容」用的是关键词匹配（keyTerms → FTS 的 OR 查询），
+// 只能找到字面重合的帖子 —— 讲同一件事但换了个说法的完全找不到。
+// 已经有 13.8 万条向量了，用它做相似度明显更准。
+//
+// 返回 null 表示「用不了向量」（没建索引、或这条本身没有向量），
+// 由调用方回退到关键词方案，而不是直接报错。
+export function similarPosts(id, k) {
+  const n = Number(k || 8);
+  let items;
+  try { items = loadVectors(); } catch (e) { return null; }
+  if (!items || !items.length) return null;
+  const self = items.find(x => x.id === Number(id));
+  if (!self) return null;
+  const hits = topK(self.vec, self.norm, items, n + 1);
+  return hits.filter(h => h.id !== Number(id)).slice(0, n);
+}
+
 // 向量集合常驻内存：12 万条 int8 约 120MB，每次查询都从库里读太慢
 function loadVectors() {
   if (vecCache) return vecCache.items;

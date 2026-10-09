@@ -42,7 +42,7 @@ export async function facets(): Promise<Facets> {
 export async function getPost(id: number): Promise<Post> {
   return (await fetch('/api/post/' + id)).json();
 }
-export async function related(id: number): Promise<{ items: Post[] }> {
+export async function related(id: number): Promise<{ items: Post[]; by?: string }> {
   return (await fetch('/api/related/' + id)).json();
 }
 export async function getClusterMembers(repId: number): Promise<{ items: Post[] }> {

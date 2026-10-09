@@ -2,8 +2,8 @@ import { Star } from 'lucide-react';
 import { Post } from '../api';
 import { catColor, timeAgo, fmtNum } from '../lib/util';
 
-export function Detail({ post, rel, cluster, fav, onFav, onOpen, onAsk }: {
-  post: Post; rel: Post[]; cluster?: Post[]; fav: boolean;
+export function Detail({ post, rel, relBy, cluster, fav, onFav, onOpen, onAsk }: {
+  post: Post; rel: Post[]; relBy?: string; cluster?: Post[]; fav: boolean;
   onFav: (p: Post) => void; onOpen: (p: Post) => void; onAsk: (p: Post) => void;
 }) {
   const c = catColor(post.category);
@@ -73,7 +73,16 @@ export function Detail({ post, rel, cluster, fav, onFav, onOpen, onAsk }: {
       {rel && rel.length > 0 && (
         <>
           <div className="divider" style={{ margin: '22px 0 14px' }} />
-          <div style={{ fontSize: 12.5, color: 'var(--fg-mute)', marginBottom: 10, letterSpacing: '.04em' }}>相关内容</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
+          <span style={{ fontSize: 'var(--fs-micro)', color: 'var(--fg-mute)', letterSpacing: '.04em' }}>相关内容</span>
+          {relBy === 'vector' && (
+            <span className="mstat" style={{ background: 'color-mix(in srgb, var(--accent) 15%, transparent)', color: 'var(--accent)' }}
+              title="按向量相似度找到：换个说法讲同一件事的也能命中">语义相似</span>
+          )}
+          {relBy === 'keyword' && (
+            <span className="mstat idle" title="这条没有向量（只为高分帖建索引），回退到关键词匹配">关键词</span>
+          )}
+        </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {rel.map(r => (
               <div key={r.id} className="card" style={{ padding: '10px 13px', cursor: 'pointer' }} onClick={() => onOpen(r)}>

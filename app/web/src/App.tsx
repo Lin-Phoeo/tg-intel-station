@@ -56,6 +56,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState('');
   const [sel, setSel] = useState<Post | null>(null);
+  const [relBy, setRelBy] = useState('');
   const [rel, setRel] = useState<Post[]>([]);
   const [cluster, setCluster] = useState<Post[]>([]);
   const [collapse, setCollapse] = useState(() => localStorage.getItem('tg.collapse') !== '0');
@@ -237,7 +238,7 @@ export default function App() {
     setRightOpen(true);
     setRel([]);
     setCluster([]);
-    relApi(p.id).then(r => setRel(r.items || [])).catch(() => {});
+    relApi(p.id).then(r => { setRel(r.items || []); setRelBy(r.by || ''); }).catch(() => {});
     if (p.clusterSize > 1) getClusterMembers(p.repId || p.id).then(r => setCluster(r.items || [])).catch(() => {});
   }
   async function openById(id: number) {
@@ -508,7 +509,7 @@ export default function App() {
             {panel === 'chat'
               ? <ChatPanel filters={filters} pendingPost={askPost} onConsumePending={() => setAskPost(null)} onOpenPost={openById} />
               : (sel
-                ? <div style={{ height: '100%', overflowY: 'auto' }}><Detail post={sel} rel={rel} cluster={cluster} fav={favIds.includes(sel.id)} onFav={toggleFav} onOpen={openPost} onAsk={ask} /></div>
+                ? <div style={{ height: '100%', overflowY: 'auto' }}><Detail post={sel} rel={rel} relBy={relBy} cluster={cluster} fav={favIds.includes(sel.id)} onFav={toggleFav} onOpen={openPost} onAsk={ask} /></div>
                 : <div style={{ padding: 30, color: 'var(--fg-mute)', textAlign: 'center' }}>从左侧点开任意一条查看详情</div>)}
           </div>
         </aside>
