@@ -57,10 +57,16 @@ test('search: 英文词走 FTS 并命中', () => {
   assert.ok(r.items.some(x => x.text.includes('GitHub')));
 });
 
-test('search: 2 字词走 like 模式且结果包含该词', () => {
+test('search: 2 字词也走 FTS（单字分词后不再退化）', () => {
   const r = store.search({ q: '开源', size: 10 });
-  assert.equal(r.mode, 'like');
+  assert.equal(r.mode, 'fts');
   assert.ok(r.items.some(x => x.text.includes('开源')));
+});
+
+test('search: 2 字词不会误命中不连续的相同字', () => {
+  store.insertPost(rec({ msgId: 30, channel: 'phrasechan', text: '开端与源头，两字并不相邻' }));
+  const r = store.search({ q: '开源', size: 50, collapse: false });
+  assert.ok(!r.items.some(x => x.text.includes('开端与源头')), '「开」「源」不相邻不应命中');
 });
 
 test('search: 分类与标签筛选生效', () => {

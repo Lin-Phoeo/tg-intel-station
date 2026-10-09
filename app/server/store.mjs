@@ -2,7 +2,7 @@
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
-import { splitTerms } from '../../core/text.mjs';
+import { splitTerms, toGram } from '../../core/text.mjs';
 import { buildQuery, orExpr } from '../../core/query.mjs';
 import { orderBy, orderBySimple, bm25Expr } from '../../core/rank.mjs';
 import { clusterKey } from '../../core/cluster.mjs';
@@ -14,6 +14,21 @@ const DB_PATH = process.env.DB_PATH || path.join(ROOT, 'app', 'data', 'intel.db'
 
 let db = null;
 let countCache = { n: 0, at: 0 };
+
+// 检索计数缓存（60 秒，最多 300 条）。任何写入都会清空。
+const COUNT_TTL = 60000;
+const COUNT_MAX = 300;
+const qCounts = new Map();
+function cachedCount(key, produce) {
+  const hit = qCounts.get(key);
+  const now = Date.now();
+  if (hit && now - hit.at < COUNT_TTL) return hit.n;
+  const n = produce();
+  if (qCounts.size >= COUNT_MAX) qCounts.clear();
+  qCounts.set(key, { n: n, at: now });
+  return n;
+}
+function clearCounts() { qCounts.clear(); countCache = { n: 0, at: 0 }; }
 
 // ---------- 表结构 ----------
 // store 是唯一写入方，schema 也由 store 负责，避免出现第二套建表逻辑
@@ -33,7 +48,10 @@ const SQL_POSTS = [
 function createSchema() {
   db.exec(SQL_POSTS);
   db.exec('CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT)');
-  db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS posts_fts USING fts5(text, tags, domains, channel, content='posts', content_rowid='id', tokenize='trigram')");
+  // 单字分词索引：CJK 逐字成词，ASCII 保持整词。
+  // 相比 trigram，词典从海量三字串降到约一万个汉字，索引更小；
+  // 且任意长度查询都能转成短语匹配，2 字词不再退化成全表 LIKE 扫描。
+  db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS posts_fts USING fts5(text_gram, tags_gram, domains, channel, content='', tokenize='unicode61')");
   db.exec("CREATE TABLE IF NOT EXISTS sources(id TEXT PRIMARY KEY, kind TEXT, title TEXT, members TEXT, url TEXT, added_at TEXT, last_sync TEXT, imported INTEGER DEFAULT 0, note TEXT)");
   db.exec("CREATE TABLE IF NOT EXISTS job_runs(job_key TEXT NOT NULL, run_date TEXT NOT NULL, status TEXT NOT NULL, started_at TEXT, finished_at TEXT, detail TEXT, PRIMARY KEY(job_key, run_date))");
   db.exec('CREATE INDEX IF NOT EXISTS idx_posts_lookup ON posts(channel, msg_id)');
@@ -114,10 +132,10 @@ export function insertPost(rec) {
   );
   const id = Number(info.lastInsertRowid);
   if (repId === null) d.prepare('UPDATE posts SET rep_id = ? WHERE id = ?').run(id, id);
-  d.prepare('INSERT INTO posts_fts(rowid,text,tags,domains,channel) VALUES(?,?,?,?,?)').run(
-    id, rec.text || '', rec.tags || '', rec.domains || '', rec.channel
+  d.prepare('INSERT INTO posts_fts(rowid,text_gram,tags_gram,domains,channel) VALUES(?,?,?,?,?)').run(
+    id, toGram(rec.text || ''), toGram(rec.tags || ''), rec.domains || '', rec.channel
   );
-  countCache = { n: 0, at: 0 };
+  clearCounts();
   return { inserted: true, id: id, clustered: repId !== null, repId: repId === null ? id : repId, clusterSize: csize };
 }
 
@@ -131,15 +149,30 @@ export function bulkInsertPosts(rows) {
   d.exec('BEGIN');
   for (const row of rows) { stmt.run(row.id, ...recToRow(row)); n++; }
   d.exec('COMMIT');
-  countCache = { n: 0, at: 0 };
+  clearCounts();
   return n;
 }
 
+// 重建全文索引。内容表是 contentless，必须由本层按 toGram 规则逐条写入。
 export function rebuildFts() {
   const d = open();
-  d.exec("INSERT INTO posts_fts(posts_fts) VALUES('rebuild')");
+  d.exec('DROP TABLE IF EXISTS posts_fts');
+  d.exec("CREATE VIRTUAL TABLE posts_fts USING fts5(text_gram, tags_gram, domains, channel, content='', tokenize='unicode61')");
+  const ins = d.prepare('INSERT INTO posts_fts(rowid, text_gram, tags_gram, domains, channel) VALUES(?,?,?,?,?)');
+  let last = 0, n = 0;
+  while (true) {
+    const rows = d.prepare('SELECT id, text, tags, domains, channel FROM posts WHERE id > ? ORDER BY id LIMIT 20000').all(last);
+    if (!rows.length) break;
+    d.exec('BEGIN');
+    for (const r of rows) ins.run(r.id, toGram(r.text || ''), toGram(r.tags || ''), String(r.domains || ''), String(r.channel || ''));
+    d.exec('COMMIT');
+    last = rows[rows.length - 1].id;
+    n += rows.length;
+    if (n % 200000 === 0) console.log('  已索引 ' + n.toLocaleString());
+  }
   d.exec("INSERT INTO posts_fts(posts_fts) VALUES('optimize')");
-  return true;
+  clearCounts();
+  return n;
 }
 
 // ---------- 来源管理（用户手动添加的链接）----------
@@ -222,9 +255,8 @@ export function search(opts) {
   // （is_rep 尚未回填时默认值为 1，等价于不折叠，对老数据安全）
   if (collapse) where.push('p.is_rep = 1');
 
-  const qy = buildQuery(q);
+  const qy = buildQuery(q, { mode: 'gram' });
   const terms = qy.terms;
-  const shortTerms = qy.shortTerms;
   const expr = qy.expr;
   const offset = (Math.max(1, page) - 1) * size;
 
@@ -234,26 +266,29 @@ export function search(opts) {
 
   if (expr) {
     mode = 'fts';
-    const where2 = where.slice();
-    const params2 = params.slice();
-    for (const t of shortTerms) { where2.push('p.text LIKE ?'); params2.push('%' + t + '%'); }
-    const w = where2.length ? ' AND ' + where2.join(' AND ') : '';
+    const w = where.length ? ' AND ' + where.join(' AND ') : '';
     const orderSql = orderBy(sort);
-    const sql = 'SELECT ' + SELECT_COLS + ', ' + bm25Expr() + ' AS rank FROM posts_fts f JOIN posts p ON p.id = f.rowid WHERE posts_fts MATCH ?' + w + ' ORDER BY ' + orderSql + ' LIMIT ? OFFSET ?';
-    rows = d.prepare(sql).all(expr, ...params2, size, offset);
-    const c = d.prepare('SELECT COUNT(*) AS n FROM (SELECT f.rowid FROM posts_fts f JOIN posts p ON p.id = f.rowid WHERE posts_fts MATCH ?' + w + ' LIMIT 20000)').get(expr, ...params2);
-    total = c ? c.n : 0;
-  } else if (terms.length) {
-    // short query fallback: LIKE scan, bounded by other filters
-    mode = 'like';
-    const likeW = where.slice();
-    const likeP = params.slice();
-    for (const t of terms) { likeW.push('p.text LIKE ?'); likeP.push('%' + t + '%'); }
-    const w = likeW.length ? ' WHERE ' + likeW.join(' AND ') : '';
-    const orderSql = orderBySimple(sort);
-    rows = d.prepare('SELECT ' + SELECT_COLS + ' FROM posts p' + w + ' ORDER BY ' + orderSql + ' LIMIT ? OFFSET ?').all(...likeP, size, offset);
-    const lc = d.prepare('SELECT COUNT(*) AS n FROM (SELECT 1 FROM posts p' + w + ' LIMIT 20000)').get(...likeP);
-    total = lc ? lc.n : 0;
+    // 必须用 CROSS JOIN 强制以 FTS 为驱动表。
+    // 若写成普通 JOIN，优化器会选「先扫 is_rep=1 的 56 万行、再逐行回探 FTS」的计划，
+    // 实测单次要 7 秒；强制顺序后同样的计数只需 35ms。
+    const sql = 'SELECT ' + SELECT_COLS + ', ' + bm25Expr() + ' AS rank FROM posts_fts f CROSS JOIN posts p ON p.id = f.rowid WHERE posts_fts MATCH ?' + w + ' ORDER BY ' + orderSql + ' LIMIT ? OFFSET ?';
+    try {
+      rows = d.prepare(sql).all(expr, ...params, size, offset);
+      total = cachedCount(expr + '|' + where.join('|') + '|' + params.join(','), () => {
+        const c = d.prepare('SELECT COUNT(*) AS n FROM posts_fts f CROSS JOIN posts p ON p.id = f.rowid WHERE posts_fts MATCH ?' + w).get(expr, ...params);
+        return c ? c.n : 0;
+      });
+    } catch (e) {
+      // 索引缺失或损坏时回退 LIKE，保证功能可用
+      mode = 'like';
+      const likeW = where.slice();
+      const likeP = params.slice();
+      for (const t of terms) { likeW.push('p.text LIKE ?'); likeP.push('%' + t + '%'); }
+      const lw = likeW.length ? ' WHERE ' + likeW.join(' AND ') : '';
+      rows = d.prepare('SELECT ' + SELECT_COLS + ' FROM posts p' + lw + ' ORDER BY ' + orderBySimple(sort) + ' LIMIT ? OFFSET ?').all(...likeP, size, offset);
+      const lc = d.prepare('SELECT COUNT(*) AS n FROM (SELECT 1 FROM posts p' + lw + ' LIMIT 20000)').get(...likeP);
+      total = lc ? lc.n : 0;
+    }
   } else {
     mode = 'browse';
     const w = where.length ? ' WHERE ' + where.join(' AND ') : '';
@@ -332,7 +367,7 @@ export function related(id, limit = 8) {
   if (!p) return [];
   const expr = orExpr(keyTerms(p.text));
   if (!expr) return [];
-  const rows = d.prepare('SELECT ' + SELECT_COLS + ', ' + bm25Expr() + ' AS rank FROM posts_fts f JOIN posts p ON p.id = f.rowid WHERE posts_fts MATCH ? AND p.id != ? ORDER BY rank ASC LIMIT ?').all(expr, Number(id), limit);
+  const rows = d.prepare('SELECT ' + SELECT_COLS + ', ' + bm25Expr() + ' AS rank FROM posts_fts f CROSS JOIN posts p ON p.id = f.rowid WHERE posts_fts MATCH ? AND p.id != ? ORDER BY rank ASC LIMIT ?').all(expr, Number(id), limit);
   return rows.map(rowToPost);
 }
 
@@ -344,7 +379,7 @@ export function liveCount() {
   countCache = { n: r ? r.n : 0, at: Date.now() };
   return countCache.n;
 }
-export function invalidateCount() { countCache = { n: 0, at: 0 }; }
+export function invalidateCount() { clearCounts(); }
 
 export function facets() {
   const d = open();
