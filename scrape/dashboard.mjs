@@ -1,0 +1,13 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const tpl = fs.readFileSync(path.join(ROOT, 'scrape', 'dashboard.template.html'), 'utf8');
+let data = fs.readFileSync(path.join(ROOT, 'data', 'dashboard.json'), 'utf8');
+const meta = fs.readFileSync(path.join(ROOT, 'data', 'stats.json'), 'utf8');
+data = data.replace(/<\//g, '<\\/');
+const safeMeta = meta.replace(/<\//g, '<\\/');
+const html = tpl.replace('/*__DATA__*/', () => data).replace('/*__META__*/', () => safeMeta);
+fs.mkdirSync(path.join(ROOT, 'output'), { recursive: true });
+fs.writeFileSync(path.join(ROOT, 'output', 'index.html'), html, 'utf8');
+console.log('wrote output/index.html', (Buffer.byteLength(html) / 1024 / 1024).toFixed(1) + ' MB');
