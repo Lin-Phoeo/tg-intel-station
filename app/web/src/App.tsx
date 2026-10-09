@@ -10,6 +10,7 @@ import { ChatPanel } from './components/ChatPanel';
 import { SettingsModal } from './components/SettingsModal';
 import { AddSourceModal } from './components/AddSourceModal';
 import { SyncButton } from './components/SyncButton';
+import { TaskProgress } from './components/TaskProgress';
 import { SubscriptionsModal } from './components/SubscriptionsModal';
 import { CommandPalette } from './components/CommandPalette';
 import type { Cmd } from './components/CommandPalette';
@@ -322,6 +323,7 @@ export default function App() {
         </div>
 
         <SyncButton onDone={() => { facetsApi().then(setFac); load(1); }} />
+        <TaskProgress />
 
         <div className="divider" style={{ margin: '10px 0' }} />
         <div style={{ flex: 1, overflowY: 'auto', padding: '0 10px 20px' }}>
