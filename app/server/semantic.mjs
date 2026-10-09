@@ -34,7 +34,8 @@ export async function buildIndex(opts) {
   if (state.running) return { ok: false, error: '已有向量化任务在进行中' };
   const o = opts || {};
   const minValue = o.minValue == null ? 4 : o.minValue;
-  const batch = Math.max(1, Math.min(128, Number(o.batch || 32)));
+  // 默认 16：实测远程向量接口在批次 32 时会超时，16 稳定且总耗时相近
+  const batch = Math.max(1, Math.min(128, Number(o.batch || 16)));
   // 截断长度：模型上下文约 512 token（中文约 768 字），取 512 字几乎不丢信息，
   // 但能把单条耗时从 45ms 压到 35ms（13 万条少跑 25 分钟）。
   const maxChars = Math.max(64, Math.min(2000, Number(o.maxChars || 512)));
@@ -52,6 +53,10 @@ export async function buildIndex(opts) {
     state.running = false; state.finishedAt = Date.now();
     return { ok: true, skipped: true, reason: '所有达标帖子都已建立向量' };
   }
+
+  // 记录已有向量的模型与维度，用于第一批算完后做一致性校验
+  const existingModel = stats.model || '';
+  const existingDim = stats.dim || 0;
 
   let batches = 0;
   try {
@@ -71,6 +76,17 @@ export async function buildIndex(opts) {
         break;
       }
       state.model = r.model;
+      // 防呆：与已有向量的模型/维度不一致时立即中止。
+      // 混用会让大部分向量因维度不符被 topK 静默跳过，表现成「检索结果莫名变少」。
+      if (existingModel && r.model && r.model !== existingModel) {
+        state.error = '已有 ' + stats.indexed + ' 条向量是用「' + existingModel + '」建的，' +
+          '当前配置解析到的是「' + r.model + '」。两者不能混用，请先清空索引再重建。';
+        break;
+      }
+      if (existingDim && r.vectors[0] && r.vectors[0].length !== existingDim) {
+        state.error = '已有向量的维度是 ' + existingDim + '，本次是 ' + r.vectors[0].length + '，无法混用。请先清空索引。';
+        break;
+      }
       const out = [];
       for (let i = 0; i < rows.length; i++) {
         const v = r.vectors[i];
