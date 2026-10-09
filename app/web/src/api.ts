@@ -124,6 +124,18 @@ export async function listSources(): Promise<{ sources: any[] }> {
   return (await fetch('/api/sources')).json();
 }
 
+// ---------- 一键补齐 ----------
+export async function getSyncStatus(): Promise<any> {
+  return (await fetch('/api/sync/status')).json();
+}
+export async function runSync(maxMessages?: number): Promise<any> {
+  const r = await fetch('/api/sync/run', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ maxMessages }),
+  });
+  return r.json();
+}
+
 export async function chat(body: any, h: ChatHandlers) {
   let res: Response;
   try {

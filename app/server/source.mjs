@@ -69,6 +69,9 @@ export function startImport(input, opts) {
   return j;
 }
 
+// 可复用的导入实现：把进度写进传入的 target（与 job 同结构），供「一键补齐」逐源调用
+export { run as importInto };
+
 async function run(j, input, opts) {
   const r = await resolve(input);
   j.kind = r.kind; j.title = r.title || ''; j.note = r.note || '';

@@ -7,6 +7,7 @@ import * as store from './store.mjs';
 import * as ai from './ai.mjs';
 import * as bot from './bot.mjs';
 import * as source from './source.mjs';
+import * as sync from './sync.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const DIST = path.join(ROOT, 'app', 'web', 'dist');
@@ -115,6 +116,15 @@ async function api(req, res, pathname, query) {
     } catch (e) {
       return send(res, 200, { ok: false, error: String(e.message || e) });
     }
+  }
+
+  if (pathname === '/api/sync/status') {
+    return send(res, 200, sync.getSyncStatus());
+  }
+
+  if (pathname === '/api/sync/run' && req.method === 'POST') {
+    const body = await readBody(req);
+    return send(res, 200, sync.startFullSync({ maxMessages: body.maxMessages }));
   }
 
   if (pathname === '/api/source/resolve' && req.method === 'POST') {

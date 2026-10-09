@@ -6,6 +6,7 @@ import { Detail } from './components/Detail';
 import { ChatPanel } from './components/ChatPanel';
 import { SettingsModal } from './components/SettingsModal';
 import { AddSourceModal } from './components/AddSourceModal';
+import { SyncButton } from './components/SyncButton';
 import { catColor, fmtNum } from './lib/util';
 
 const PAGE = 40;
@@ -169,6 +170,8 @@ export default function App() {
           <button className="btn ghost" style={{ justifyContent: 'flex-start' }} onClick={() => { setPanel('chat'); setRightOpen(true); }}>✨ AI 情报助手</button>
           <button className="btn ghost" style={{ justifyContent: 'flex-start' }} onClick={() => setAddSourceOpen(true)}>🔗 按链接抓取</button>
         </div>
+
+        <SyncButton onDone={() => { facetsApi().then(setFac); load(1); }} />
 
         <div className="divider" style={{ margin: '10px 0' }} />
         <div style={{ flex: 1, overflowY: 'auto', padding: '0 10px 20px' }}>
