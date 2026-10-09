@@ -317,21 +317,77 @@ export function extractiveAnswer(question, posts) {
   return out.join('\n');
 }
 
+// 拼接对话接口地址。
+// 各家 Base URL 形态不一：有的带 /v1（DeepSeek、硅基流动），
+// 有的带 /api/paas/v4（智谱）、compatible-mode/v1（通义）、api/v3（火山）。
+// 只写域名（如 https://api.xxx.icu）是最常见的填错方式 —— 此时要补 /v1，
+// 否则请求会打到站点首页，拿到一个 HTTP 200 的 HTML，然后就「静默返回空回答」。
+export function chatUrls(baseUrl) {
+  const b = String(baseUrl || '').replace(/\/+$/, '');
+  if (!b) return [];
+  const hasVersion = /\/v\d+([a-z0-9-]*)?$/i.test(b);
+  const out = [b + '/chat/completions'];
+  if (!hasVersion) out.push(b + '/v1/chat/completions');
+  return [...new Set(out)];
+}
+
+// 判断响应体是不是「网页」而不是 API 数据。
+// 中转站/网关在路由不匹配时经常返回 200 + 首页 HTML，直接解析会得到空结果。
+function looksLikeHtml(text) {
+  const t = String(text || '').trim().slice(0, 200).toLowerCase();
+  return t.startsWith('<!doctype') || t.startsWith('<html') || (t.startsWith('<') && t.indexOf('<head') >= 0);
+}
+
+// 中转站/网关常把接口放在 Cloudflare 后面。被 WAF 拦下时返回的是
+// 「Attention Required!」HTML 而不是 JSON，光看状态码会误判成鉴权问题。
+function cloudflareBlocked(text) {
+  const t = String(text || '').slice(0, 4000).toLowerCase();
+  return t.indexOf('attention required') >= 0 || t.indexOf('cloudflare') >= 0 && t.indexOf('<html') >= 0;
+}
+
+// 把各种失败翻译成「该去哪儿改」的话，而不是丢一个状态码给用户
+function explainFailure(status, text) {
+  if (cloudflareBlocked(text)) {
+    return '被 Cloudflare 拦截了（服务商侧的防护，不是密钥问题）。可以在浏览器里登录该中转站确认账号正常，或联系服务商；也可以换一个直连的服务商。';
+  }
+  if (status === 401 || status === 403) return '密钥无效或没有该模型的权限（' + status + '）';
+  if (status === 404) return '接口地址或模型名不存在（404）。Base URL 通常要以 /v1 结尾';
+  if (status === 429) return '请求过频或被限流（429）';
+  if (status >= 500) return '服务商暂时故障（' + status + '）';
+  return 'HTTP ' + status;
+}
+
 // ---------- LLM streaming ----------
 export async function streamLLM(messages, onDelta) {
   const s = loadSettings();
   const p = activeProfile();
   if (!p || !p.baseUrl || !p.apiKey) throw new Error('NO_KEY');
-  const baseUrl = String(p.baseUrl).replace(/\/+$/, '');
-  const res = await fetch(baseUrl + '/chat/completions', {
-    method: 'POST',
-    headers: headersFor(p),
-    body: JSON.stringify({ model: p.model, messages: messages, stream: true, temperature: s.temperature == null ? 0.3 : s.temperature }),
-    signal: AbortSignal.timeout(180000),
-  });
-  if (!res.ok) {
-    const t = await res.text().catch(() => '');
-    throw new Error('模型返回 ' + res.status + '：' + t.slice(0, 300));
+  const urls = chatUrls(p.baseUrl);
+  let res = null;
+  let lastHtml = false;
+  for (const u of urls) {
+    const r = await fetch(u, {
+      method: 'POST',
+      headers: headersFor(p),
+      body: JSON.stringify({ model: p.model, messages: messages, stream: true, temperature: s.temperature == null ? 0.3 : s.temperature }),
+      signal: AbortSignal.timeout(180000),
+    });
+    const ct = (r.headers.get('content-type') || '').toLowerCase();
+    if (!r.ok) {
+      const t = await r.text().catch(() => '');
+      if (looksLikeHtml(t)) { lastHtml = true; continue; }
+      throw new Error(explainFailure(r.status, t) + (t ? '  ' + t.replace(/\s+/g, ' ').slice(0, 200) : ''));
+    }
+    if (ct.indexOf('text/html') >= 0) { lastHtml = true; await r.text().catch(() => ''); continue; }
+    res = r;
+    break;
+  }
+  if (!res) {
+    const err = new Error(lastHtml
+      ? '接口返回的是网页而不是数据。可能是 Base URL 少了 /v1，也可能是被 Cloudflare 之类的防护拦了。请用「测试连接」看具体原因'
+      : '没有可用的接口地址');
+    err.status = 'BAD_URL';
+    throw err;
   }
   const reader = res.body.getReader();
   const dec = new TextDecoder();
@@ -363,15 +419,25 @@ export async function completeLLM(messages) {
   const s = loadSettings();
   const p = activeProfile();
   if (!p || !p.baseUrl || !p.apiKey) throw new Error('NO_KEY');
-  const baseUrl = String(p.baseUrl).replace(/\/+$/, '');
-  const res = await fetch(baseUrl + '/chat/completions', {
-    method: 'POST',
-    headers: headersFor(p),
-    body: JSON.stringify({ model: p.model, messages: messages, stream: false, temperature: s.temperature == null ? 0.3 : s.temperature }),
-    signal: AbortSignal.timeout(120000),
-  });
-  if (!res.ok) throw new Error('模型返回 ' + res.status + '：' + (await res.text().catch(() => '')).slice(0, 200));
-  const j = await res.json();
+  const urls = chatUrls(p.baseUrl);
+  let j = null;
+  let lastHtml = false;
+  for (const u of urls) {
+    const r = await fetch(u, {
+      method: 'POST',
+      headers: headersFor(p),
+      body: JSON.stringify({ model: p.model, messages: messages, stream: false, temperature: s.temperature == null ? 0.3 : s.temperature }),
+      signal: AbortSignal.timeout(120000),
+    });
+    const text = await r.text();
+    if (looksLikeHtml(text)) { lastHtml = true; continue; }
+    if (!r.ok) throw new Error('模型返回 ' + r.status + '：' + text.replace(/\s+/g, ' ').slice(0, 200));
+    try { j = JSON.parse(text); } catch (e) { throw new Error('返回的不是 JSON：' + text.replace(/\s+/g, ' ').slice(0, 160)); }
+    break;
+  }
+  if (!j) throw new Error(lastHtml
+    ? '服务地址返回的是网页而不是接口。Base URL 通常需要以 /v1 结尾（如 https://api.xxx.icu/v1），请在设置里补上'
+    : '没有可用的接口地址');
   return (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
 }
 
@@ -595,26 +661,46 @@ export async function testConnection(profile) {
   if (!apiKey) throw new Error('未配置密钥');
 
   const at = Date.now();
-  let res;
-  try {
-    res = await fetch(baseUrl + '/chat/completions', {
-      method: 'POST',
-      headers: headersFor({ apiKey: apiKey, apiFormat: apiFormat, headers: profile && profile.headers }),
-      body: JSON.stringify({ model: model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 5 }),
-      signal: AbortSignal.timeout(30000),
-    });
-  } catch (e) {
-    const c = e && e.cause;
-    throw new Error('连不上：' + String((c && c.code) || e.message || e).slice(0, 80));
+  const urls = chatUrls(baseUrl);
+  let res = null;
+  let htmlSample = '';
+  let cfBlocked = false;
+  for (const u of urls) {
+    try {
+      const r = await fetch(u, {
+        method: 'POST',
+        headers: headersFor({ apiKey: apiKey, apiFormat: apiFormat, headers: profile && profile.headers }),
+        body: JSON.stringify({ model: model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 5 }),
+        signal: AbortSignal.timeout(30000),
+      });
+      const ct = (r.headers.get('content-type') || '').toLowerCase();
+      if (ct.indexOf('text/html') >= 0) {
+        // 网页响应要读正文才知道原因：Cloudflare 拦截页和「少了 /v1」长相完全不同
+        const body = await r.text().catch(() => '');
+        if (cloudflareBlocked(body)) cfBlocked = true;
+        if (!htmlSample) htmlSample = body.slice(0, 400);
+        continue;
+      }
+      res = r;
+      break;
+    } catch (e) {
+      const c = e && e.cause;
+      if (u === urls[urls.length - 1]) {
+        throw new Error('连不上：' + String((c && c.code) || e.message || e).slice(0, 90));
+      }
+    }
   }
   const ms = Date.now() - at;
+  if (!res) {
+    if (cfBlocked) {
+      throw new Error('被 Cloudflare 拦截了。这不是密钥问题，而是服务商侧的防护 —— 浏览器能登录不代表程序能调。建议联系服务商，或换一个直连的服务商');
+    }
+    throw new Error('接口返回的是网页而不是数据。Base URL 通常要以 /v1 结尾（如 https://api.xxx.icu/v1）'
+      + (htmlSample ? '  页面标题：' + (String(htmlSample).match(/<title>([^<]*)<\/title>/i) || [])[1] || '' : ''));
+  }
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    let hint = 'HTTP ' + res.status;
-    if (res.status === 401 || res.status === 403) hint = '密钥无效或无权访问（' + res.status + '）';
-    else if (res.status === 404) hint = '地址或模型不存在（404）';
-    else if (res.status === 429) hint = '请求过频或被限流（429）';
-    const err = new Error(hint + (body ? '  ' + body.slice(0, 120) : ''));
+    const err = new Error(explainFailure(res.status, body));
     err.status = res.status;
     throw err;
   }

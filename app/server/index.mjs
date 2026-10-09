@@ -365,8 +365,10 @@ async function api(req, res, pathname, query) {
       ev({ type: 'status', stage: 'retrieving' });
       const posts = ai.retrieve(question, filters, ai.loadSettings().topK || 14);
       ev({ type: 'sources', items: posts.map(p => ({ id: p.id, date: p.date, channel: p.channel, category: p.category, text: String(p.text || '').slice(0, 160), url: p.url, value: p.value })) });
-      const settings = ai.loadSettings();
-      if (!settings.apiKey) {
+      // 注意：API Key 存在每个服务商档案里（profiles[].apiKey），
+      // 顶层 settings 根本没有 apiKey 字段。原先写成 settings.apiKey，
+      // 恒为 undefined，导致 AI 问答永远走「未配置模型」的降级分支。
+      if (!ai.hasKey()) {
         const text = ai.extractiveAnswer(question, posts);
         for (let i = 0; i < text.length; i += 40) {
           ev({ type: 'delta', text: text.slice(i, i + 40) });
