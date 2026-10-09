@@ -7,12 +7,51 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const DB_PATH = process.env.DB_PATH || path.join(ROOT, 'app', 'data', 'intel.db');
 
 let db = null;
+
+// 新增列（群消息收录用），首次打开时自动迁移，已存在则跳过
+function ensureSchema() {
+  try {
+    const cols = db.prepare('PRAGMA table_info(posts)').all().map(r => String(r.name));
+    if (cols.indexOf('source') < 0) db.exec("ALTER TABLE posts ADD COLUMN source TEXT DEFAULT 'channel'");
+    if (cols.indexOf('author') < 0) db.exec("ALTER TABLE posts ADD COLUMN author TEXT DEFAULT ''");
+    if (cols.indexOf('group_title') < 0) db.exec("ALTER TABLE posts ADD COLUMN group_title TEXT DEFAULT ''");
+    db.exec('CREATE INDEX IF NOT EXISTS idx_posts_lookup ON posts(channel, msg_id)');
+  } catch (e) { /* 只读打开或迁移失败不应阻断服务 */ }
+}
+
 export function open() {
   if (db) return db;
   db = new DatabaseSync(DB_PATH, { readOnly: false });
   db.exec('PRAGMA cache_size=-160000');
   db.exec('PRAGMA mmap_size=1073741824');
+  ensureSchema();
   return db;
+}
+
+// 把群里收到的消息写进同一个索引库（这是公开预览页抓不到的来源）
+export function insertGroupPost(rec) {
+  const d = open();
+  const exists = d.prepare('SELECT id FROM posts WHERE channel = ? AND msg_id = ? LIMIT 1').get(rec.channel, rec.msgId);
+  if (exists) return { inserted: false, id: exists.id, reason: 'duplicate' };
+  const maxRow = d.prepare('SELECT MAX(id) AS m FROM posts').get();
+  const id = ((maxRow && maxRow.m) ? maxRow.m : 0) + 1;
+  d.prepare('INSERT INTO posts(id,channel,msg_id,date,ts,views,media,text,category,categories,tags,hashtags,value,content,url,links,domains,lp_title,source,author,group_title) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(
+    id, rec.channel, rec.msgId, rec.date || '', rec.ts || 0, 0, rec.media || '',
+    rec.text || '', rec.category || '', rec.categories || '', rec.tags || '', rec.hashtags || '',
+    rec.value || 0, rec.content || 0, rec.url || '', rec.links || '', rec.domains || '', '',
+    'group', rec.author || '', rec.groupTitle || ''
+  );
+  d.prepare('INSERT INTO posts_fts(rowid, text, tags, domains, channel) VALUES(?,?,?,?,?)').run(
+    id, rec.text || '', rec.tags || '', rec.domains || '', rec.channel
+  );
+  return { inserted: true, id: id };
+}
+
+export function groupStats() {
+  const d = open();
+  const r = d.prepare("SELECT COUNT(*) AS n FROM posts WHERE source = 'group'").get();
+  const g = d.prepare("SELECT channel, group_title, COUNT(*) AS n FROM posts WHERE source = 'group' GROUP BY channel ORDER BY n DESC LIMIT 20").all();
+  return { total: r ? r.n : 0, groups: g };
 }
 
 const FTS_SPECIAL = /["'*():^\-]/g;

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as store from './store.mjs';
 import * as ai from './ai.mjs';
+import { classify } from '../../scrape/classify.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CONFIG_PATH = path.join(ROOT, 'app', 'data', 'bot.json');
@@ -20,6 +21,7 @@ const DEFAULTS = {
   pushLimit: 8,
   windowDays: 4,
   allowAsk: true,
+  ingestGroups: false,
   pushedIds: [],
   lastPushDate: '',
 };
@@ -48,7 +50,72 @@ export function publicConfig() {
     pushTags: c.pushTags, pushLimit: c.pushLimit, windowDays: c.windowDays,
     allowAsk: c.allowAsk, lastPushDate: c.lastPushDate,
     pushedCount: (c.pushedIds || []).length,
+    ingestGroups: c.ingestGroups,
+    ingestedCount: (status.ingested || 0),
+    lastIngest: status.lastIngest || null,
   };
+}
+
+// ---------------- 群消息收录（公开预览页抓不到群，机器人可以）----------------
+function extractLinks(msg, text) {
+  const out = [];
+  const push = (u) => { if (u && /^https?:/i.test(u) && out.indexOf(u) < 0) out.push(u); };
+  for (const e of (msg.entities || msg.caption_entities || [])) {
+    if (e.type === 'text_link' && e.url) push(e.url);
+    else if (e.type === 'url') push(text.slice(e.offset, e.offset + e.length));
+  }
+  const m = text.match(/https?:\/\/[^\s<>"'）)】]+/g);
+  if (m) for (const u of m) push(u);
+  return out.slice(0, 12);
+}
+
+function domainList(links) {
+  const out = [];
+  for (const u of links) {
+    try { const h = new URL(u).hostname.replace(/^www./, ''); if (out.indexOf(h) < 0) out.push(h); } catch (e) {}
+  }
+  return out;
+}
+
+async function ingestGroupMessage(msg) {
+  const c = loadConfig();
+  if (!c.ingestGroups) return;
+  const chatType = (msg.chat && msg.chat.type) || '';
+  if (chatType !== 'group' && chatType !== 'supergroup') return;
+  if (msg.from && msg.from.is_bot) return;
+  const raw = (msg.text || msg.caption || '').trim();
+  if (raw.length < 8) return;
+  if (raw.charAt(0) === '/') return;
+
+  const chatId = String(msg.chat.id);
+  const channel = msg.chat.username ? ('g_' + msg.chat.username) : ('group_' + chatId);
+  const links = extractLinks(msg, raw);
+  const domains = domainList(links);
+
+  let cls;
+  try { cls = classify({ t: raw, lk: links, lp: [], v: 0, ts: msg.date, d: msg.date ? new Date(msg.date * 1000).toISOString() : null }); }
+  catch (e) { return; }
+
+  const author = [msg.from && msg.from.first_name, msg.from && msg.from.last_name].filter(Boolean).join(' ') || (msg.from && msg.from.username) || '';
+  let r;
+  try {
+    r = store.insertGroupPost({
+      channel: channel, msgId: msg.message_id,
+      date: msg.date ? new Date(msg.date * 1000).toISOString().slice(0, 10) : '',
+      ts: msg.date || 0,
+      text: cls.text, category: cls.primary, categories: (cls.cats || []).join(','),
+      tags: (cls.tags || []).join(','), hashtags: (cls.hashtags || []).join(','),
+      value: cls.value, content: cls.content,
+      url: 'https://t.me/' + (msg.chat.username ? msg.chat.username : 'c/' + chatId) + '/' + msg.message_id,
+      links: links.join(' '), domains: domains.join(' '),
+      author: author, groupTitle: msg.chat.title || '',
+    });
+  } catch (e) { status.lastError = '写入群消息失败：' + String(e.message || e); return; }
+
+  if (r.inserted) {
+    status.ingested = (status.ingested || 0) + 1;
+    status.lastIngest = { chat: msg.chat.title || chatId, text: cls.text.slice(0, 60), category: cls.primary, at: Date.now() };
+  }
 }
 
 // ---------------- Telegram API ----------------
@@ -185,7 +252,12 @@ function formatResults(items, title) {
 
 async function handleUpdate(u) {
   const msg = u.message || u.channel_post || u.edited_message;
-  if (!msg || !msg.text) return;
+  if (!msg) return;
+  if (msg.text && msg.text.charAt(0) !== '/') {
+    await ingestGroupMessage(msg);
+    return;
+  }
+  if (!msg.text) return;
   const chatId = msg.chat.id;
   const chatTitle = msg.chat.title || msg.chat.username || msg.chat.first_name || String(chatId);
   const text = msg.text.trim();
@@ -195,6 +267,7 @@ async function handleUpdate(u) {
   if (!m) return;
   const cmd = m[1].toLowerCase();
   const arg = (m[2] || '').trim();
+  await ingestGroupMessage(msg);
   status.lastCommand = { cmd: cmd, chat: chatTitle, at: Date.now() };
 
   try {
@@ -214,6 +287,7 @@ async function handleUpdate(u) {
         'AI 模型：' + (ai.hasKey() ? '已配置' : '未配置（/ask 不可用）'),
         '日报推送：' + (c.pushChatId ? ('已设置 ' + c.pushChatId + (c.autoPush ? ' · 每天 ' + c.pushHour + ' 点' : ' · 仅手动')) : '未设置'),
         '已推送条目：' + (c.pushedIds || []).length,
+        '群消息收录：' + (c.ingestGroups ? ('已开启 · 本次运行收录 ' + (status.ingested || 0) + ' 条') : '未开启'),
       ].join('\n'), msg.message_id);
       return;
     }
@@ -265,7 +339,7 @@ async function handleUpdate(u) {
 }
 
 // ---------------- 长轮询 + 定时 ----------------
-const status = { running: false, me: null, lastError: null, lastUpdateAt: null, lastCommand: null, startedAt: null, updates: 0 };
+const status = { running: false, me: null, lastError: null, lastUpdateAt: null, lastCommand: null, startedAt: null, updates: 0, ingested: 0, lastIngest: null };
 let stopFlag = false;
 let loopPromise = null;
 let schedTimer = null;

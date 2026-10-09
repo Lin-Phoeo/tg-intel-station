@@ -5,6 +5,7 @@ type Cfg = {
   enabled: boolean; hasToken: boolean; tokenHint: string; pushChatId: string; allowedChatIds: string;
   autoPush: boolean; pushHour: number; pushMinValue: number; pushTags: string[]; pushLimit: number;
   windowDays: number; allowAsk: boolean; lastPushDate: string; pushedCount: number;
+  ingestGroups: boolean; ingestedCount: number; lastIngest: any;
 };
 const TAGS = ['免费', '限时', '开源', '教程', '节点', '账号', '需注册', '破解'];
 
@@ -39,7 +40,7 @@ export function BotSettings() {
       enabled: cfg.enabled, pushChatId: cfg.pushChatId, allowedChatIds: cfg.allowedChatIds,
       autoPush: cfg.autoPush, pushHour: Number(cfg.pushHour), pushMinValue: Number(cfg.pushMinValue),
       pushTags: cfg.pushTags, pushLimit: Number(cfg.pushLimit), windowDays: Number(cfg.windowDays),
-      allowAsk: cfg.allowAsk, restart: restart,
+      allowAsk: cfg.allowAsk, ingestGroups: cfg.ingestGroups, restart: restart,
     };
     if (token.trim()) payload.token = token.trim();
     const r = await saveBot(payload);
@@ -171,6 +172,25 @@ export function BotSettings() {
         </div>
         <div style={{ fontSize: 12, color: 'var(--fg-mute)', marginTop: 10 }}>
           自动推送只会发**没推过的新条目**（已推送的会记住，不会重复刷屏）。服务需要在推送时间处于运行状态。
+        </div>
+      </div>
+
+      <div style={card}>
+        <div style={{ fontWeight: 650, marginBottom: 8 }}>4. 反向收录：把群里的情报收进库</div>
+        <div style={{ fontSize: 12.5, color: 'var(--fg-dim)', lineHeight: 1.85, marginBottom: 10 }}>
+          Telegram 的群没有公开预览页，所以之前抓不到群（比如 @qiuyueww）。但机器人进群后能收到消息 —— 开启后，群里聊到的工具/羊毛会自动分类、去重，并进入同一个检索库，也能被 AI 问答检索到。
+          <br />
+          ⚠️ 要让机器人读到<b>普通消息</b>（而不只是命令），二选一：把机器人<b>设为群管理员</b>（最简单）；或在 @BotFather 里 <code>/setprivacy</code> 关闭隐私模式后，把机器人移出群再重新拉进来。
+        </div>
+        <div style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13.5 }}>
+            <input type="checkbox" checked={cfg.ingestGroups} onChange={e => upd('ingestGroups', e.target.checked)} style={{ width: 'auto', margin: 0 }} />
+            收录群消息
+          </label>
+          <span style={{ fontSize: 13, color: 'var(--fg-mute)' }}>
+            本次运行已收录 <b style={{ color: 'var(--green)' }}>{cfg.ingestedCount || 0}</b> 条
+            {cfg.lastIngest && <span>{' · 最近：' + cfg.lastIngest.chat + '「' + String(cfg.lastIngest.text || '').slice(0, 18) + '…」'}</span>}
+          </span>
         </div>
       </div>
 
