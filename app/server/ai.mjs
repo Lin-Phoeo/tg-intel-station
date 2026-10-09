@@ -1,5 +1,6 @@
 // AI layer: multi-provider profiles, retrieval-augmented generation, streaming
 import fs from 'node:fs';
+import * as local from './local-embed.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as store from './store.mjs';
@@ -383,6 +384,10 @@ const EMBED_FALLBACKS = ['text-embedding-3-small', 'text-embedding-3-large', 'te
 export function embeddingProfile() {
   const s = loadSettings();
   const p = activeProfile();
+  // 本机模型不需要任何服务商配置
+  if (local.isLocal(s.embedBaseUrl)) {
+    return { baseUrl: s.embedBaseUrl, apiKey: '', model: s.embedModel || '', apiFormat: 'openai', headers: '' };
+  }
   if (!p) return null;
   return {
     baseUrl: s.embedBaseUrl || p.baseUrl || '',
@@ -413,9 +418,13 @@ function parseEmbedding(j) {
   return arr.map(x => (Array.isArray(x) ? x : x.embedding));
 }
 
-// 返回 number[][]（与输入等长）。cfg 可覆盖 baseUrl/apiKey/model。
+// 返回 { vectors, model, url }。cfg 可覆盖 baseUrl/apiKey/model。
+// baseUrl 以 local 开头时走本机内置模型，不联网、不需要 Key。
 export async function embed(texts, cfg) {
   const p = Object.assign(embeddingProfile() || {}, cfg || {});
+  if (local.isLocal(p.baseUrl)) {
+    return await local.localEmbed(texts, p.model);
+  }
   if (!p.baseUrl) throw new Error('未配置服务地址，无法向量化');
   const headers = headersFor({ apiKey: p.apiKey, apiFormat: p.apiFormat, headers: p.headers });
   const models = p.model ? [p.model] : EMBED_FALLBACKS;

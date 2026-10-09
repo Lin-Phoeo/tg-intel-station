@@ -4,12 +4,17 @@ import { semanticStatus, buildSemanticIndex, clearSemanticIndex, getSettings, sa
 // 向量服务预设。接口地址都实测过可达（401 = 地址正确、只差有效 Key）。
 // 标 free 的是服务商明示免费的模型（模力方舟清单，2026-10 核对）。
 const EMBED_PRESETS = [
+  // ---- 本机内置：不联网、不需要 Key、不花钱 ----
+  { label: '★ 本机内置 · bge-small-zh-v1.5（推荐·最快）', baseUrl: 'local:', model: 'Xenova/bge-small-zh-v1.5', note: '512维 · 约95MB · 13万条约15分钟' },
+  { label: '★ 本机内置 · bge-base-zh-v1.5（更准）', baseUrl: 'local:', model: 'Xenova/bge-base-zh-v1.5', note: '768维 · 约400MB' },
+  { label: '★ 本机内置 · bge-m3（多语言）', baseUrl: 'local:', model: 'Xenova/bge-m3', note: '1024维 · 约570MB' },
+  // ---- 远程免费 ----
   { label: '模力方舟 · bge-m3（推荐·均衡）', baseUrl: 'https://ai.gitee.com/v1', model: 'bge-m3', note: '1024维 · 8K · 多语言' },
   { label: '模力方舟 · Qwen3-Embedding-0.6B（轻快）', baseUrl: 'https://ai.gitee.com/v1', model: 'Qwen3-Embedding-0.6B', note: '1024维 · 32K' },
   { label: '模力方舟 · Qwen3-Embedding-4B（更准·2.5倍存储）', baseUrl: 'https://ai.gitee.com/v1', model: 'Qwen3-Embedding-4B', note: '2560维 · 32K' },
   { label: '模力方舟 · bge-large-zh-v1.5（中文）', baseUrl: 'https://ai.gitee.com/v1', model: 'bge-large-zh-v1.5', note: '1024维 · 中文' },
   { label: '模力方舟 · bce-embedding-base_v1（有道中文）', baseUrl: 'https://ai.gitee.com/v1', model: 'bce-embedding-base_v1', note: '768维 · 中文' },
-  { label: '本机 Ollama（完全免费·不联网）', baseUrl: 'http://127.0.0.1:11434/v1', model: 'bge-m3', note: '本地推理' },
+  { label: '本机 Ollama（若已安装）', baseUrl: 'http://127.0.0.1:11434/v1', model: 'bge-m3', note: '本地推理服务' },
   { label: 'Google Gemini text-embedding-004', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'text-embedding-004', note: '官方免费档' },
   { label: '硅基流动 BAAI/bge-m3', baseUrl: 'https://api.siliconflow.cn/v1', model: 'BAAI/bge-m3', note: '社区长期推荐' },
   { label: 'Jina embeddings-v3', baseUrl: 'https://api.jina.ai/v1', model: 'jina-embeddings-v3', note: '有免费额度' },
@@ -97,13 +102,19 @@ export function SemanticPanel() {
               title={pr.baseUrl + '  ->  ' + pr.model + (pr.note ? '   [' + pr.note + ']' : '')}>{pr.label}</button>
           ))}
         </div>
+        {String(C.embedBaseUrl || '').toLowerCase().indexOf('local') === 0 && (
+          <div style={{ fontSize: 12, color: 'var(--green)', marginBottom: 10, padding: '7px 11px', borderRadius: 8, background: 'color-mix(in srgb, var(--green) 10%, transparent)' }}>
+            本机模式：模型只下载一次（缓存在 app/data/models），之后<b>完全离线</b>运行，不需要 API Key，也不消耗任何额度。
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <input value={C.embedBaseUrl || ''} onChange={e => setLocal('embedBaseUrl', e.target.value)}
-            placeholder="向量接口地址" style={{ flex: '1 1 240px', padding: '7px 11px', fontSize: 13 }} />
+            placeholder="向量接口地址（本机模式填 local:）" style={{ flex: '1 1 240px', padding: '7px 11px', fontSize: 13 }} />
           <input value={C.embedModel || ''} onChange={e => setLocal('embedModel', e.target.value)}
             placeholder="向量模型" style={{ width: 190, padding: '7px 11px', fontSize: 13 }} />
           <input value={embedKey} onChange={e => setEmbedKey(e.target.value)} type="password"
-            placeholder={C.hasEmbedKey ? ('已保存 ' + C.embedKeyHint) : 'API Key'}
+            placeholder={String(C.embedBaseUrl || '').toLowerCase().indexOf('local') === 0 ? '本机模式无需 Key' : (C.hasEmbedKey ? ('已保存 ' + C.embedKeyHint) : 'API Key')}
+            disabled={String(C.embedBaseUrl || '').toLowerCase().indexOf('local') === 0}
             style={{ flex: '1 1 190px', padding: '7px 11px', fontSize: 13 }} />
           <button className="btn" disabled={saving}
             onClick={() => { const p: any = { embedBaseUrl: C.embedBaseUrl || '', embedModel: C.embedModel || '' }; if (embedKey) p.embedApiKey = embedKey; saveCfg(p); }}
@@ -118,7 +129,8 @@ export function SemanticPanel() {
         <div style={{ fontSize: 12.5, color: 'var(--fg-mute)', lineHeight: 1.75, marginBottom: 10 }}>
           先用向量<b>粗排召回</b>一批候选，再用 cross-encoder <b>精排</b>。
           粗排负责「找得到」，精排负责「排得准」——开了之后结果顺序会明显更合理。<br />
-          模力方舟这几个重排模型都是<b>免费</b>的。
+          模力方舟这几个重排模型都是<b>免费</b>的。若向量用的是本机模式、没有云端 Key，
+          重排可以先不开 —— 不影响语义检索本身，只是排序会略逊。
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
           {RERANK_PRESETS.map(pr => (

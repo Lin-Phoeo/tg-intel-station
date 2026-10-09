@@ -147,7 +147,9 @@ async function api(req, res, pathname, query) {
   if (pathname === '/api/semantic/status') return send(res, 200, semantic.getStatus());
   if (pathname === '/api/semantic/build' && req.method === 'POST') {
     const body = await readBody(req).catch(() => ({}));
-    return send(res, 200, semantic.startBuild(body));
+    return send(res, 200, semantic.startBuild({
+      minValue: body.minValue, batch: body.batch, maxChars: body.maxChars, maxBatches: body.maxBatches,
+    }));
   }
   if (pathname === '/api/semantic/clear' && req.method === 'POST') {
     return send(res, 200, { ok: semantic.clearIndex(), stats: store.embedStats() });

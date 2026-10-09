@@ -25,5 +25,8 @@
     "backup:list": "node app/server/backup-cli.mjs list",
     "reindex": "node scrape/reindex.mjs",
     "semantic:build": "node -e \"import('./app/server/semantic.mjs').then(m=>m.buildIndex({}).then(r=>console.log(JSON.stringify(r,null,2))))\""
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.3.1"
   }
 }
