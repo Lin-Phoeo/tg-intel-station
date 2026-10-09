@@ -235,6 +235,37 @@ async function api(req, res, pathname, query) {
     return send(res, 200, r);
   }
 
+  // 自动检测接口地址：把候选地址逐个探一遍，找到能用的那个并记住。
+  // 中转站地址形态不一（根域名 / 补 /v1 / 带 /api/claudecode 之类子路径），
+  // 让用户去猜不现实 —— 借鉴 cc-switch 的 endpointCandidates 思路。
+  if (pathname === '/api/settings/detect' && req.method === 'POST') {
+    const body = await readBody(req);
+    const s = ai.loadSettings();
+    const target = body && body.id
+      ? (s.profiles || []).find(p => p.id === body.id)
+      : null;
+    const probe = target || {
+      baseUrl: (body && body.baseUrl) || '',
+      apiKey: (body && body.apiKey) || '',
+      model: (body && body.model) || '',
+      apiFormat: (body && body.apiFormat) || 'openai',
+    };
+    if (!probe.apiKey && target && target.hasKey && body.apiKey) probe.apiKey = body.apiKey;
+    try {
+      const r = await ai.detectEndpoint(probe);
+      if (r.ok && target) {
+        // 记住它，后续调用直接走这个地址
+        const next = (s.profiles || []).map(p => p.id === target.id
+          ? Object.assign({}, p, { resolvedUrl: r.url, resolvedFormat: r.format })
+          : p);
+        ai.saveSettings({ profiles: next });
+      }
+      return send(res, 200, { ok: r.ok, url: r.url || '', format: r.format || '', hint: r.hint || '', tried: r.tried || [] });
+    } catch (e) {
+      return send(res, 200, { ok: false, hint: String(e.message || e), tried: [] });
+    }
+  }
+
   if (pathname === '/api/settings/test' && req.method === 'POST') {
     const body = await readBody(req);
     // 传 all: true 就并发测完所有已保存的服务商，界面可一键「全部测速」

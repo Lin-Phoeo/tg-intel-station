@@ -20,7 +20,7 @@ export const PRESETS = [
   { id: 'relay', label: '自定义中转 / 自建站', baseUrl: '', model: '', note: '任何 OpenAI 兼容接口，可加自定义请求头' },
 ];
 
-const PROFILE_SHAPE = { id: '', name: '', baseUrl: '', model: '', apiKey: '', headers: '', apiFormat: 'openai', modelsUrl: '' };
+const PROFILE_SHAPE = { id: '', name: '', baseUrl: '', model: '', apiKey: '', headers: '', apiFormat: 'openai', modelsUrl: '', resolvedUrl: '', resolvedFormat: '' };
 const DEFAULT_PROFILES = [
   Object.assign({}, PROFILE_SHAPE, { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' }),
   Object.assign({}, PROFILE_SHAPE, { id: 'siliconflow', name: '硅基流动', baseUrl: 'https://api.siliconflow.cn/v1', model: 'deepseek-ai/DeepSeek-V3' }),
@@ -58,6 +58,11 @@ export function saveSettings(patch) {
       const old = cur.profiles.find(c => c.id === p.id) || {};
       const merged = Object.assign({}, PROFILE_SHAPE, old, p);
       if (!p.apiKey) merged.apiKey = old.apiKey || '';
+      // 地址、模型或协议改了，之前探测记住的端点就不一定还成立，清掉重新探
+      if (old.baseUrl && (p.baseUrl !== old.baseUrl || p.model !== old.model || (p.apiFormat || 'openai') !== (old.apiFormat || 'openai'))) {
+        merged.resolvedUrl = '';
+        merged.resolvedFormat = '';
+      }
       return merged;
     });
   }
@@ -90,6 +95,7 @@ export function publicSettings() {
       id: p.id, name: p.name, baseUrl: p.baseUrl, model: p.model,
       hasKey: !!p.apiKey, keyHint: p.apiKey ? p.apiKey.slice(0, 4) + '****' + p.apiKey.slice(-4) : '',
       headers: p.headers || '', apiFormat: p.apiFormat || 'openai', modelsUrl: p.modelsUrl || '',
+      resolvedUrl: p.resolvedUrl || '', resolvedFormat: p.resolvedFormat || '',
     })),
   };
 }
@@ -380,6 +386,102 @@ function buildRequestBody(profile, messages, opts) {
   return body;
 }
 
+
+// ---------------------------------------------------------------------------
+// 端点探测（思路借鉴开源项目 farion1231/cc-switch 的 endpointCandidates 设计）
+//
+// 起因：中转站的接口地址形态极不统一。实测样本：
+//   https://api.zetaapi.ai                        根域名 + /v1/messages
+//   https://api.aicodemirror.ai/api/claudecode    带非标准子路径
+//   https://api.xxx.icu                          要补 /v1 才是 OpenAI 端点
+//   https://api.xxx.icu                          只有 Anthropic 端点，OpenAI 端点被 WAF 拦
+// 让用户去猜「该填哪个地址、该选哪种协议」是不现实的。
+// 所以：把可能的组合全部列出来，逐个探一遍，把能用的那个记住。
+// ---------------------------------------------------------------------------
+
+// 常见的中转站子路径前缀（有些站把 Claude 兼容层挂在专门路径下）
+const RELAY_PREFIXES = ['', '/api/claudecode', '/claudecode', '/api/claude', '/claude'];
+
+// 生成候选端点，按「可能性从高到低」排序
+export function endpointCandidates(baseUrl, preferredFormat) {
+  const b = String(baseUrl || '').trim().replace(/\/+$/, '');
+  if (!b) return [];
+  const ver = /\/v\d+([a-z0-9-]*)?$/i.test(b);   // 已经带版本段
+  const out = [];
+  const seen = new Set();
+  const push = (fmt, url) => {
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    out.push({ fmt: fmt, url: url });
+  };
+
+  const pref = preferredFormat === 'anthropic' ? 'anthropic' : 'openai';
+  const other = pref === 'anthropic' ? 'openai' : 'anthropic';
+
+  // 按「地址形态」分轮，每轮里让首选协议排前面。
+  // 之前是按协议分组（OpenAI 的全部试完才轮到 Anthropic），
+  // 实测要发 10 个无效请求才命中 —— 交替之后第 2 个就中了。
+  const formsFor = (fmt, root) => (fmt === 'anthropic')
+    ? (ver ? [root + '/messages'] : [root + '/v1/messages', root + '/messages'])
+    : (ver ? [root + '/chat/completions'] : [root + '/v1/chat/completions', root + '/chat/completions']);
+
+  // 第一轮：根域名下的标准形态，两种协议逐条交替
+  // （不是「先把一种协议试完再试另一种」—— 那样最坏要多发 8 个无效请求）
+  const f1 = formsFor(pref, b), f2 = formsFor(other, b);
+  for (let i = 0; i < Math.max(f1.length, f2.length); i++) {
+    if (f1[i]) push(pref, f1[i]);
+    if (f2[i]) push(other, f2[i]);
+  }
+  // 第二轮起：带子路径的中转形态
+  for (const pre of RELAY_PREFIXES.slice(1)) {
+    for (const fmt of [pref, other]) for (const u of formsFor(fmt, b + pre)) push(fmt, u);
+  }
+  return out.slice(0, 16);
+}
+
+// 真正去探一遍，返回第一个能用的端点。
+// 用最小请求（max_tokens 很小、一句话），探测成本很低。
+export async function detectEndpoint(profile) {
+  const base = String(profile.baseUrl || '').trim().replace(/\/+$/, '');
+  if (!base) throw new Error('没有填 Base URL');
+  const key = profile.apiKey || '';
+  if (!key) throw new Error('没有填 API Key');
+  const model = profile.model || '';
+  if (!model) throw new Error('没有填模型名');
+
+  const list = endpointCandidates(base, profile.apiFormat);
+  const tried = [];
+  for (const c of list) {
+    const p2 = Object.assign({}, profile, { apiFormat: c.fmt });
+    const body = JSON.stringify(buildRequestBody(p2, [{ role: 'user', content: 'ping' }], { maxTokens: 8 }));
+    try {
+      const r = await fetch(c.url, { method: 'POST', headers: headersFor(p2), body: body, signal: AbortSignal.timeout(20000) });
+      const text = await r.text();
+      if (looksLikeHtml(text)) { tried.push(c.url + ' → 返回网页（网关或防护拦截）'); continue; }
+      if (!r.ok) {
+        // 鉴权类错误说明「地址对了，但密钥/模型有问题」—— 这已经是有用信息
+        if (r.status === 401 || r.status === 403) {
+          tried.push(c.url + ' → ' + r.status + '（地址通，但密钥或权限有问题）');
+          return { ok: false, url: c.url, format: c.fmt, status: r.status, hint: explainFailure(r.status, text), tried: tried };
+        }
+        tried.push(c.url + ' → HTTP ' + r.status);
+        continue;
+      }
+      let j = null;
+      try { j = JSON.parse(text); } catch (e) { tried.push(c.url + ' → 返回非 JSON'); continue; }
+      // 能解析出内容才算真的可用
+      if (extractText(p2, j) || (j.content || j.choices)) {
+        return { ok: true, url: c.url, format: c.fmt, tried: tried };
+      }
+      tried.push(c.url + ' → 结构不认识');
+    } catch (e) {
+      const cc = e && e.cause;
+      tried.push(c.url + ' → ' + String((cc && cc.code) || e.message || e).slice(0, 40));
+    }
+  }
+  return { ok: false, tried: tried, hint: '下面列出的地址都试过了，没有一个可用' };
+}
+
 // 生成「按序尝试」的候选列表。
 //
 // 为什么两种协议都要试：中转站有的只开 OpenAI 端点、有的只开 Anthropic 端点。
@@ -387,6 +489,12 @@ function buildRequestBody(profile, messages, opts) {
 // 实测某 Claude 中转站：/v1/chat/completions 被 Cloudflare 拦成 403 网页，
 // 而 /v1/messages 正常 —— 只因为协议不对就完全用不了，体验很糟。
 function llmAttempts(profile, messages, opts) {
+  // 已经探测成功过就直接用那个地址 —— 不必每次都把候选全试一遍
+  if (profile.resolvedUrl) {
+    const fmt = profile.resolvedFormat || profile.apiFormat || 'openai';
+    const p2 = Object.assign({}, profile, { apiFormat: fmt });
+    return [{ profile: p2, url: profile.resolvedUrl, headers: headersFor(p2), body: JSON.stringify(buildRequestBody(p2, messages, opts)), fmt: fmt }];
+  }
   const preferred = (profile.apiFormat || 'openai') === 'anthropic' ? 'anthropic' : 'openai';
   const order = preferred === 'anthropic' ? ['anthropic', 'openai'] : ['openai', 'anthropic'];
   const out = [];

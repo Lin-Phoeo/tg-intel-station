@@ -69,6 +69,12 @@ export async function testSettings(payload: any): Promise<{ ok: boolean; error?:
   return r.json();
 }
 
+// 自动探测可用的接口地址与协议（中转站地址形态不一，靠逐个试更省心）
+export async function detectSettings(payload: any): Promise<{ ok: boolean; url?: string; format?: string; hint?: string; tried?: string[] }> {
+  const r = await fetch('/api/settings/detect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  return r.json();
+}
+
 export type ChatHandlers = {
   onStatus?: (stage: string) => void;
   onSources?: (items: any[]) => void;

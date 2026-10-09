@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { getSettings, saveSettings, testSettings } from '../api';
+import { getSettings, saveSettings, testSettings, detectSettings } from '../api';
 import { ModelPicker } from './ModelPicker';
 import {
-  ArrowLeft, Check, Plus, Trash2, Pencil, Zap, Download, Upload, Loader2, AlertCircle, KeyRound,
+  ArrowLeft, Check, Plus, Trash2, Pencil, Zap, Download, Upload, Loader2, AlertCircle, KeyRound, Radar,
 } from 'lucide-react';
 
 type Profile = {
   id: string; name: string; baseUrl: string; model: string;
   apiKey?: string; hasKey?: boolean; keyHint?: string;
   headers?: string; apiFormat?: string; modelsUrl?: string;
+  resolvedUrl?: string; resolvedFormat?: string;
 };
 type Health = { state: 'idle' | 'testing' | 'ok' | 'fail'; ms?: number; error?: string };
 
@@ -77,6 +78,25 @@ export function ModelSettings({ onActiveChange }: { onActiveChange?: (id: string
     if (r.ok) setHealthFor(p.id, { state: 'ok', ms: (r.result && r.result.ms) || 0 });
     else setHealthFor(p.id, { state: 'fail', error: (r.error || '未知错误').slice(0, 80) });
     return r.ok;
+  }
+
+  // 自动探测接口地址：中转站地址形态五花八门（根域名 / 要补 /v1 / 带 /api/claudecode），
+  // 与其让用户猜，不如逐个探一遍，找到能用的那个并记住。
+  async function autoDetect(p: Profile) {
+    if (!p.baseUrl) { setMsg({ kind: 'err', text: '请先填写 Base URL' }); return; }
+    if (!p.model) { setMsg({ kind: 'err', text: '请先填写模型名' }); return; }
+    setHealthFor(p.id, { state: 'testing' });
+    setMsg({ kind: 'info', text: '正在逐个探测可用地址…' });
+    const payload: any = { baseUrl: p.baseUrl, model: p.model, apiFormat: p.apiFormat || 'openai', headers: p.headers };
+    if (p.apiKey) payload.apiKey = p.apiKey;
+    const r = await detectSettings(payload);
+    if (r.ok) {
+      setHealthFor(p.id, { state: 'ok', ms: 0 });
+      setMsg({ kind: 'ok', text: '找到可用地址：' + r.url + '（' + (r.format === 'anthropic' ? 'Anthropic' : 'OpenAI') + ' 协议），已记住' });
+    } else {
+      setHealthFor(p.id, { state: 'fail', error: '未找到可用地址' });
+      setMsg({ kind: 'err', text: (r.hint || '未找到可用地址') + '  试过：' + (r.tried || []).slice(0, 4).join('；') });
+    }
   }
 
   async function testAll() {
@@ -222,10 +242,18 @@ export function ModelSettings({ onActiveChange }: { onActiveChange?: (id: string
               </button>
             );
           })()}
+          <button className="btn" disabled={!!(health[p.id] && health[p.id].state === 'testing')} onClick={() => autoDetect(p)} title="逐个探测可用的接口地址与协议">
+            <Radar size={13} strokeWidth={1.75} />自动检测地址
+          </button>
           <span style={{ flex: 1 }} />
           {exists && <button className="btn ghost" style={{ color: 'var(--rose)' }} onClick={() => { remove(p); setEditing(null); setView('list'); }}><Trash2 size={13} strokeWidth={1.75} />删除</button>}
         </div>
         {health[p.id] && <div style={{ marginTop: 10 }}><StatusBadge id={p.id} /></div>}
+        {p.resolvedUrl && (
+          <div style={{ marginTop: 10, fontSize: 'var(--fs-micro)', color: 'var(--fg-mute)' }}>
+            已识别地址：<code>{p.resolvedUrl}</code>
+          </div>
+        )}
       </div>
     );
   }
@@ -279,11 +307,13 @@ export function ModelSettings({ onActiveChange }: { onActiveChange?: (id: string
                   <span className="mp-name">{p.name}</span>
                   {on && <span className="mp-cur">当前</span>}
                   {!p.hasKey && !p.apiKey && <span className="mp-nokey">未配密钥</span>}
+                  {p.resolvedUrl && <span className="mp-ok-url" title={'已自动识别：' + p.resolvedUrl}>地址已识别</span>}
                   <StatusBadge id={p.id} />
                 </div>
                 <div className="mp-sub">{(p.model || '未填模型') + ' · ' + (p.baseUrl ? p.baseUrl.replace(/^https?:\/\//, '') : '未填地址')}</div>
               </div>
               <div style={{ display: 'flex', gap: 2, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                <button className="btn ghost iconbtn" title="自动检测地址" onClick={() => autoDetect(p)}><Radar size={13} strokeWidth={1.75} /></button>
                 <button className="btn ghost iconbtn" title="测速" onClick={() => testOne(p)}><Zap size={13} strokeWidth={1.75} /></button>
                 <button className="btn ghost iconbtn" title="编辑" onClick={() => startEdit(p)}><Pencil size={13} strokeWidth={1.75} /></button>
                 <button className="btn ghost iconbtn" title="删除" style={{ color: 'var(--rose)' }} onClick={() => remove(p)}><Trash2 size={13} strokeWidth={1.75} /></button>

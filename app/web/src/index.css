@@ -171,6 +171,10 @@ body {
   font-size: var(--fs-micro); padding: 0 5px; border-radius: var(--r-sm);
   background: var(--accent-soft); color: var(--accent); font-weight: 600;
 }
+.mp-ok-url {
+  font-size: var(--fs-micro); padding: 0 5px; border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent);
+}
 .mp-nokey {
   font-size: var(--fs-micro); padding: 0 5px; border-radius: var(--r-sm);
   background: color-mix(in srgb, var(--amber) 16%, transparent); color: var(--amber);
