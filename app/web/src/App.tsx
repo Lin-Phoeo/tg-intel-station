@@ -427,19 +427,19 @@ export default function App() {
         </div>
 
         <div ref={scrollRef} onScroll={e => { scrollPos.current[view] = (e.target as HTMLElement).scrollTop; }}
-          style={{ flex: 1, overflowY: 'auto', padding: '16px 18px 60px' }}>
+          style={{ flex: 1, overflowY: 'auto', padding: '0 0 56px' }}>
           {view === 'favs' && favPosts.length === 0 && (
-            <div style={{ textAlign: 'center', color: 'var(--fg-mute)', paddingTop: 80 }}>还没有收藏。点击任意条目右上角的星标即可收藏。</div>
+            <div style={{ textAlign: 'center', color: 'var(--fg-mute)', paddingTop: 80, fontSize: 'var(--fs-text)' }}>还没有收藏。点击任意条目右侧的星标即可收藏。</div>
           )}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 900, margin: '0 auto' }}>
+          <div style={{ maxWidth: 1020, margin: '0 auto' }}>
             {shown.map((p, i) => (
             <div key={p.id} data-idx={i} ref={i === cursor ? (el => { if (el && scrollRef.current && scrollRef.current.contains(el)) {} }) : undefined}>
               <PostCard post={p} active={sel?.id === p.id || i === cursor} terms={terms} onOpen={p2 => { setCursor(i); openPost(p2); }} />
             </div>
           ))}
           </div>
-          {view === 'feed' && loading && page === 1 && <div style={{ textAlign: 'center', color: 'var(--fg-mute)', padding: 40 }}>正在检索…</div>}
-          {view === 'feed' && !loading && items.length === 0 && <div style={{ textAlign: 'center', color: 'var(--fg-mute)', padding: 70 }}>没有匹配的结果，试试换个关键词或清空筛选。</div>}
+          {view === 'feed' && loading && page === 1 && <div style={{ textAlign: 'center', color: 'var(--fg-mute)', padding: 48, fontSize: 'var(--fs-text)' }}>正在检索…</div>}
+          {view === 'feed' && !loading && items.length === 0 && <div style={{ textAlign: 'center', color: 'var(--fg-mute)', padding: 70, fontSize: 'var(--fs-text)' }}>没有匹配的结果，试试换个关键词或清空筛选。</div>}
           {view === 'feed' && items.length > 0 && items.length < total && (
             <div ref={sentinelRef} style={{ textAlign: 'center', padding: 24 }}>
               <button className="btn" onClick={() => load(page + 1)} disabled={loading}>{loading ? '加载中…' : '加载更多'}</button>
