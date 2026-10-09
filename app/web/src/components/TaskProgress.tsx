@@ -59,6 +59,9 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
 export function TaskProgress() {
   const [sem, setSem] = useState<any>(null);
   const [sync, setSync] = useState<any>(null);
+  // 默认收起：完整面板有 400px 高，会把侧栏下方的分类列表挤没。
+  // 收起后只占约 60px，点一下再看详情。
+  const [open, setOpen] = useState(() => localStorage.getItem('tg.taskOpen') === '1');
   const timer = useRef<any>(null);
 
   async function tick() {
@@ -82,6 +85,8 @@ export function TaskProgress() {
     if (!timer.current) timer.current = setInterval(tick, 2500);
   }
 
+  function toggle() { setOpen(v => { localStorage.setItem('tg.taskOpen', v ? '0' : '1'); return !v; }); }
+
   const sStats = (sem && sem.stats) || {};
   const indexed = n(sStats.indexed), eligible = n(sStats.eligible);
   const syncing = !!(sync && sync.running);
@@ -101,11 +106,52 @@ export function TaskProgress() {
   const total = eligible;
   const pct = total ? Math.min(100, (done / total) * 100) : 0;
 
+  const borderC = building ? 'color-mix(in srgb, var(--violet) 35%, transparent)' : (syncing ? 'color-mix(in srgb, var(--cyan) 35%, transparent)' : 'var(--border)');
+
+  // ---------- 收起态 ----------
+  if (!open) {
+    return (
+      <div style={{ padding: '0 10px 8px' }}>
+        <style>{'@keyframes tp-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.55;transform:scale(.86)}} .tp-dot-now{animation:tp-pulse 1.6s ease-in-out infinite}'}</style>
+        <div className="card" onClick={toggle} title="点击展开详情"
+          style={{ padding: '8px 11px 9px', cursor: 'pointer', borderColor: borderC, transition: 'border-color .2s' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span className={building || syncing ? 'tp-dot-now' : ''} style={{
+              width: 7, height: 7, borderRadius: 4, flexShrink: 0,
+              background: building ? 'var(--violet)' : (syncing ? 'var(--cyan)' : (pending ? 'var(--amber)' : 'var(--green)')),
+            }} />
+            <span style={{ fontSize: 11.5, fontWeight: 650, color: 'var(--fg-dim)' }}>
+              {building ? '向量索引' : (pending ? '向量索引' : '增量抓取')}
+            </span>
+            <span style={{ flex: 1 }} />
+            <span style={{ fontSize: 12, fontWeight: 750, fontVariantNumeric: 'tabular-nums', color: building ? 'var(--violet)' : (pending ? 'var(--amber)' : 'var(--cyan)') }}>
+              {building || pending ? pct.toFixed(1) + '%' : (sync && sync.total ? Math.round((n(sync.done) / n(sync.total)) * 100) + '%' : '')}
+            </span>
+            <span style={{ fontSize: 9, color: 'var(--fg-mute)', marginLeft: 1 }}>▾</span>
+          </div>
+          <div style={{ height: 3, background: 'var(--bg-3)', borderRadius: 2, overflow: 'hidden', margin: '6px 0 5px' }}>
+            <div style={{
+              width: (building || pending ? pct : (sync && sync.total ? (n(sync.done) / n(sync.total)) * 100 : 0)) + '%',
+              height: '100%', borderRadius: 2, transition: 'width .5s',
+              background: building ? 'linear-gradient(90deg, var(--violet), var(--accent))' : (pending ? 'var(--amber)' : 'var(--cyan)'),
+            }} />
+          </div>
+          <div style={{ fontSize: 10, color: 'var(--fg-mute)', fontVariantNumeric: 'tabular-nums', display: 'flex', gap: 8 }}>
+            {building && <span>{'剩余 ' + fmtDur(sem.etaSec) + ' · ' + (sem.rate ? sem.rate.toFixed(1) : '--') + ' 条/秒'}</span>}
+            {!building && pending && <span>{'待继续 · 还剩 ' + remain.toLocaleString() + ' 条'}</span>}
+            {syncing && <span>{'抓取 ' + n(sync.done) + '/' + n(sync.total) + ' 个来源'}</span>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ---------- 展开态 ----------
   return (
     <div style={{ padding: '0 10px 8px' }}>
       <style>{'@keyframes tp-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.55;transform:scale(.86)}} .tp-dot-now{animation:tp-pulse 1.6s ease-in-out infinite}'}</style>
 
-      <div className="card" style={{ padding: '13px 14px 14px', borderColor: building ? 'color-mix(in srgb, var(--violet) 35%, transparent)' : 'var(--border)' }}>
+      <div className="card" style={{ padding: '13px 14px 14px', borderColor: borderC }}>
 
         {/* 标题行 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
@@ -122,6 +168,8 @@ export function TaskProgress() {
             background: building ? 'color-mix(in srgb, var(--violet) 16%, transparent)' : (pending ? 'color-mix(in srgb, var(--amber) 16%, transparent)' : 'color-mix(in srgb, var(--green) 16%, transparent)'),
             color: building ? 'var(--violet)' : (pending ? 'var(--amber)' : 'var(--green)'),
           }}>{building ? '进行中' : (pending ? '待继续' : '进行中')}</span>
+          <button className="btn ghost" title="收起" onClick={toggle}
+            style={{ padding: '0 5px', fontSize: 11, lineHeight: 1.4, color: 'var(--fg-mute)' }}>▴</button>
         </div>
 
         {/* 向量索引 */}
