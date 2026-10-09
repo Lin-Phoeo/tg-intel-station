@@ -399,7 +399,7 @@ export default function App() {
             也不会再把分类列表挤下去。 */}
         <div className="surface catbar">
           <span className={'chip' + (!cat ? ' on' : '')} onClick={() => setCat('')}>
-            全部<span className="cn">{fac ? fmtNum(Number(fac.meta.count || 0)) : ''}</span>
+            全部<span className="cn">{fac ? fmtNum(Number(fac.meta.visible || fac.meta.count || 0)) : ''}</span>
           </span>
           {fac && fac.categories.slice().sort((a, b) => catRank(a.k) - catRank(b.k)).map(c => (
             <span key={c.k} className={'chip' + (cat === c.k ? ' on' : '')} onClick={() => setCat(cat === c.k ? '' : c.k)}>
