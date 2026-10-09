@@ -179,8 +179,10 @@ export async function buildSemanticIndex(opts?: any): Promise<any> {
 export async function clearSemanticIndex(): Promise<any> {
   return (await fetch('/api/semantic/clear', { method: 'POST' })).json();
 }
-export async function semanticQuery(q: string, k?: number): Promise<any> {
-  return (await fetch('/api/semantic?q=' + encodeURIComponent(q) + '&k=' + (k || 30))).json();
+export async function semanticQuery(q: string, k?: number, rerank?: boolean, recall?: number): Promise<any> {
+  const u = '/api/semantic?q=' + encodeURIComponent(q) + '&k=' + (k || 30)
+    + (rerank ? '&rerank=1' : '') + (recall ? '&recall=' + recall : '');
+  return (await fetch(u)).json();
 }
 
 // ---------- 备份 / 恢复 ----------

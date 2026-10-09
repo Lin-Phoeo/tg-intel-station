@@ -154,6 +154,12 @@ async function api(req, res, pathname, query) {
   }
   if (pathname === '/api/semantic') {
     const k = Math.min(100, Number(query.k || 30));
+    const useRerank = query.rerank === '1' || query.rerank === 'true';
+    if (useRerank) {
+      const r = await semantic.rerankedSearch(String(query.q || ''), k, Number(query.recall || 60));
+      if (!r.ok) return send(res, 200, { ok: false, error: r.error, items: [] });
+      return send(res, 200, r);
+    }
     const r = await semantic.semanticSearch(String(query.q || ''), Math.max(k * 8, 200));
     if (!r.ok) return send(res, 200, { ok: false, error: r.error, items: [] });
     return send(res, 200, { ok: true, model: r.model, items: r.items.slice(0, k) });

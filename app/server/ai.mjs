@@ -81,6 +81,10 @@ export function publicSettings() {
     embedModel: s.embedModel || '',
     hasEmbedKey: !!s.embedApiKey,
     embedKeyHint: s.embedApiKey ? s.embedApiKey.slice(0, 4) + '****' + s.embedApiKey.slice(-4) : '',
+    rerankBaseUrl: s.rerankBaseUrl || '',
+    rerankModel: s.rerankModel || '',
+    hasRerankKey: !!s.rerankApiKey,
+    rerankKeyHint: s.rerankApiKey ? s.rerankApiKey.slice(0, 4) + '****' + s.rerankApiKey.slice(-4) : '',
     profiles: s.profiles.map(p => ({
       id: p.id, name: p.name, baseUrl: p.baseUrl, model: p.model,
       hasKey: !!p.apiKey, keyHint: p.apiKey ? p.apiKey.slice(0, 4) + '****' + p.apiKey.slice(-4) : '',
@@ -444,6 +448,82 @@ export async function embed(texts, cfg) {
     }
   }
   const err = new Error('没有可用的向量模型。可在设置里手动指定「向量模型」。已尝试：\n' + errors.slice(0, 6).join('\n'));
+  err.detail = errors.slice(0, 12);
+  throw err;
+}
+
+// ---------------------------------------------------------------------------
+// 重排（Rerank）
+// 先粗排召回一批候选，再用 cross-encoder 精排。比单纯向量余弦准得多。
+// 协议沿用 Jina / 硅基流动 / 模力方舟通用的 {base}/rerank。
+// ---------------------------------------------------------------------------
+const RERANK_FALLBACKS = ['bge-reranker-v2-m3', 'BAAI/bge-reranker-v2-m3', 'Qwen3-Reranker-4B', 'jina-reranker-v2-base-multilingual', 'bge-reranker-large'];
+
+export function rerankProfile() {
+  const s = loadSettings();
+  const p = activeProfile();
+  if (!p) return null;
+  return {
+    baseUrl: s.rerankBaseUrl || s.embedBaseUrl || p.baseUrl || '',
+    apiKey: s.rerankApiKey || s.embedApiKey || p.apiKey || '',
+    model: s.rerankModel || '',
+    apiFormat: p.apiFormat || 'openai',
+    headers: p.headers || '',
+  };
+}
+
+function rerankUrls(base) {
+  const b = baseOf(base);
+  const out = [b + '/rerank'];
+  if (!/\/v1$/.test(b)) out.push(b + '/v1/rerank');
+  return [...new Set(out)];
+}
+
+function parseRerank(j) {
+  const arr = (j && j.results) || (j && j.data) || [];
+  if (!Array.isArray(arr) || !arr.length) return null;
+  return arr.map((x, i) => ({
+    index: x.index == null ? i : Number(x.index),
+    score: Number(x.relevance_score != null ? x.relevance_score : (x.score != null ? x.score : 0)),
+  }));
+}
+
+// 返回按相关度从高到低排好序的 [{index, score}]
+export async function rerank(query, documents, cfg) {
+  const p = Object.assign(rerankProfile() || {}, cfg || {});
+  if (!p.baseUrl) throw new Error('未配置重排服务地址');
+  if (!documents || !documents.length) return [];
+  const headers = headersFor({ apiKey: p.apiKey, apiFormat: p.apiFormat, headers: p.headers });
+  const models = p.model ? [p.model] : RERANK_FALLBACKS;
+  const urls = rerankUrls(p.baseUrl);
+  const errors = [];
+
+  for (const model of models) {
+    for (const url of urls) {
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: headers,
+          body: JSON.stringify({ model: model, query: String(query).slice(0, 2000), documents: documents, top_n: documents.length }),
+          signal: AbortSignal.timeout(60000),
+        });
+        if (!res.ok) {
+          const body = await res.text().catch(() => '');
+          errors.push(model + ' @ ' + url + ' -> ' + res.status + ' ' + body.slice(0, 100));
+          if (res.status === 401 || res.status === 403) throw new Error('重排鉴权失败（' + res.status + '）');
+          continue;
+        }
+        const j = await res.json();
+        const list = parseRerank(j);
+        if (list) return { results: list.sort((a, b) => b.score - a.score), model: model, url: url };
+        errors.push(model + ' @ ' + url + ' -> 返回结构无法解析');
+      } catch (e) {
+        if (String(e.message || '').indexOf('鉴权失败') >= 0) throw e;
+        errors.push(model + ' @ ' + url + ' -> ' + String(e.message || e).slice(0, 90));
+      }
+    }
+  }
+  const err = new Error('没有可用的重排模型。可在设置里手动指定「重排模型」');
   err.detail = errors.slice(0, 12);
   throw err;
 }

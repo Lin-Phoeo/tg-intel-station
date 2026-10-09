@@ -63,6 +63,7 @@ export default function App() {
   const [topKw, setTopKw] = useState<string[]>([]);  // 订阅命中提醒
   const [semantic, setSemantic] = useState(() => localStorage.getItem('tg.semantic') === '1');
   const [semanticNote, setSemanticNote] = useState('');
+  const [useRerank, setUseRerank] = useState(() => localStorage.getItem('tg.rerank') !== '0');
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [cursor, setCursor] = useState(0);           // 键盘选中的卡片下标
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -139,6 +140,8 @@ export default function App() {
   const filters = useMemo(() => ({ q: dq, category: cat, channel, tags, sort, from, collapse, since: sinceFilter }), [dq, cat, channel, tags, sort, from, collapse, sinceFilter]);
   useEffect(() => { localStorage.setItem('tg.collapse', collapse ? '1' : '0'); }, [collapse]);
   useEffect(() => { localStorage.setItem('tg.semantic', semantic ? '1' : '0'); }, [semantic]);
+  useEffect(() => { localStorage.setItem('tg.rerank', useRerank ? '1' : '0'); }, [useRerank]);
+  useEffect(() => { if (view === 'feed' && (semantic || dq)) load(1); }, [semantic, useRerank]);
 
   async function load(p: number) {
     // 语义模式：把整段查询交给向量模型做「意思相近」的召回，
@@ -146,8 +149,15 @@ export default function App() {
     if (semantic && dq.trim()) {
       setLoading(true);
       try {
-        const r = await semanticQuery(dq.trim(), 60);
-        if (r.ok) { setItems(r.items || []); setTotal((r.items || []).length); setMode('semantic'); setSemanticNote('语义检索 · ' + (r.model || '')); }
+        const r = await semanticQuery(dq.trim(), 60, useRerank);
+        if (r.ok) {
+          setItems(r.items || []); setTotal((r.items || []).length); setMode('semantic');
+          const parts = ['语义检索'];
+          if (r.model) parts.push(r.model);
+          if (r.rerankModel) parts.push('重排 ' + r.rerankModel);
+          if (r.rerankError) parts.push('重排不可用：' + String(r.rerankError).slice(0, 40));
+          setSemanticNote(parts.join(' · '));
+        }
         else { setItems([]); setTotal(0); setSemanticNote(r.error || '语义检索不可用'); }
         setPage(1);
       } catch (e) { setSemanticNote('语义检索失败：' + String(e)); }
@@ -396,6 +406,12 @@ export default function App() {
                   <input type="checkbox" checked={semantic} onChange={e => setSemantic(e.target.checked)} style={{ width: 'auto', margin: 0 }} />
                   语义检索
                 </label>
+                {semantic && (
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: useRerank ? 'var(--green)' : 'var(--fg-dim)', cursor: 'pointer' }} title="向量粗排召回后再用 cross-encoder 精排，结果顺序更合理">
+                    <input type="checkbox" checked={useRerank} onChange={e => setUseRerank(e.target.checked)} style={{ width: 'auto', margin: 0 }} />
+                    重排
+                  </label>
+                )}
               </span>
             )}
           </div>

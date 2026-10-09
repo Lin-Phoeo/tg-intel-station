@@ -122,4 +122,28 @@ export async function semanticSearch(query, k) {
   return { ok: true, model: r.model, dim: q.length, count: out.length, items: out };
 }
 
+// 带重排的语义检索：先用向量粗排召回一批，再用 cross-encoder 精排。
+// 粗排负责「找得到」，精排负责「排得准」，合起来比单用向量明显更准。
+export async function rerankedSearch(query, k, recall) {
+  const base = await semanticSearch(query, Math.max(Number(recall || 60), Number(k || 30)));
+  if (!base.ok || !base.items.length) return base;
+  let rr;
+  try {
+    rr = await ai.rerank(query, base.items.map(p => String(p.text).slice(0, 1200)));
+  } catch (e) {
+    // 重排不可用时退回纯向量结果，而不是整体失败
+    return Object.assign({}, base, {
+      items: base.items.slice(0, k || 30),
+      rerankError: String(e.message || e),
+      rerankDetail: e.detail || null,
+    });
+  }
+  const out = [];
+  for (const h of rr.results) {
+    const p = base.items[h.index];
+    if (p) out.push(Object.assign({ rerankScore: h.score }, p));
+  }
+  return { ok: true, model: base.model, rerankModel: rr.model, count: out.length, items: out.slice(0, k || 30) };
+}
+
 export function clearIndex() { store.clearEmbeddings(); invalidate(); return true; }
