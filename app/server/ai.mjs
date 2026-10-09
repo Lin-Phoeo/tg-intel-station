@@ -497,38 +497,67 @@ function parseRerank(j) {
   }));
 }
 
+// 单次请求的文档上限。多数重排服务都有上限，Gitee 模力方舟是 25，
+// 超了会直接 400。之前把全部召回文档（默认 60）一次发过去，
+// 导致重排永远失败、静默退回纯向量结果 —— 界面上看着重排了，其实没有。
+const RERANK_MAX_DOCS = 25;
+
 // 返回按相关度从高到低排好序的 [{index, score}]
 export async function rerank(query, documents, cfg) {
   const p = Object.assign(rerankProfile() || {}, cfg || {});
   if (!p.baseUrl) throw new Error('未配置重排服务地址');
-  if (!documents || !documents.length) return [];
+  if (!documents || !documents.length) return { results: [], model: '' };
+
   const headers = headersFor({ apiKey: p.apiKey, apiFormat: p.apiFormat, headers: p.headers });
   const models = p.model ? [p.model] : RERANK_FALLBACKS;
   const urls = rerankUrls(p.baseUrl);
   const errors = [];
 
+  // 超上限就分批，最后按原下标合并。这样 recall 调多大都不受服务商限制。
+  const size = Math.max(1, Math.min(Number(p.maxDocs) || RERANK_MAX_DOCS, RERANK_MAX_DOCS));
+  const chunks = [];
+  for (let i = 0; i < documents.length; i += size) {
+    chunks.push({ offset: i, docs: documents.slice(i, i + size) });
+  }
+
+  // 先确定一组可用的「模型 @ 地址」，再用它把全部分批跑完
   for (const model of models) {
     for (const url of urls) {
-      try {
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: headers,
-          body: JSON.stringify({ model: model, query: String(query).slice(0, 2000), documents: documents, top_n: documents.length }),
-          signal: AbortSignal.timeout(60000),
-        });
-        if (!res.ok) {
-          const body = await res.text().catch(() => '');
-          errors.push(model + ' @ ' + url + ' -> ' + res.status + ' ' + body.slice(0, 100));
-          if (res.status === 401 || res.status === 403) throw new Error('重排鉴权失败（' + res.status + '）');
-          continue;
+      const merged = [];
+      let usable = true;
+      for (const ch of chunks) {
+        let list = null, gaveUp = null;
+        // 网络层失败（代理抖动、连接被重置）常见且瞬时，重试 2 次再放弃
+        for (let attempt = 0; attempt < 3 && !list; attempt++) {
+          try {
+            const res = await fetch(url, {
+              method: 'POST',
+              headers: headers,
+              body: JSON.stringify({ model: model, query: String(query).slice(0, 2000), documents: ch.docs, top_n: ch.docs.length }),
+              signal: AbortSignal.timeout(60000),
+            });
+            if (!res.ok) {
+              const body = await res.text().catch(() => '');
+              const msg = model + ' @ ' + url + ' -> ' + res.status + ' ' + body.slice(0, 110);
+              errors.push(msg);
+              if (res.status === 401 || res.status === 403) throw new Error('重排鉴权失败（' + res.status + '）');
+              gaveUp = msg; break;   // 4xx/5xx 重试无意义
+            }
+            const j = await res.json();
+            list = parseRerank(j);
+            if (!list) { gaveUp = model + ' @ ' + url + ' -> 返回结构无法解析'; errors.push(gaveUp); }
+          } catch (e) {
+            if (String(e.message || '').indexOf('鉴权失败') >= 0) throw e;
+            gaveUp = model + ' @ ' + url + ' -> ' + String(e.message || e).slice(0, 90);
+            if (attempt < 2) await new Promise(r => setTimeout(r, 400 * (attempt + 1)));
+            else errors.push(gaveUp + '（已重试 2 次）');
+          }
         }
-        const j = await res.json();
-        const list = parseRerank(j);
-        if (list) return { results: list.sort((a, b) => b.score - a.score), model: model, url: url };
-        errors.push(model + ' @ ' + url + ' -> 返回结构无法解析');
-      } catch (e) {
-        if (String(e.message || '').indexOf('鉴权失败') >= 0) throw e;
-        errors.push(model + ' @ ' + url + ' -> ' + String(e.message || e).slice(0, 90));
+        if (!list) { usable = false; break; }
+        for (const it of list) merged.push({ index: ch.offset + it.index, score: it.score });
+      }
+      if (usable && merged.length) {
+        return { results: merged.sort((a, b) => b.score - a.score), model: model, url: url, chunks: chunks.length };
       }
     }
   }
