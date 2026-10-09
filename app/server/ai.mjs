@@ -242,9 +242,63 @@ export async function fetchModels(cfg) {
 }
 
 // ---------- retrieval ----------
+// ---------- retrieval ----------
+
+// 中文里高频但对检索没有区分度的词。
+// 实测：「任推邦相关」整句搜不到（0 条），但「相关」单独能命中 17,639 条 ——
+// 不加过滤的话，一个通用词就会把真正相关的内容挤掉。
+const CJK_STOP = new Set([
+  '相关', '有关', '什么', '怎么', '怎样', '如何', '哪些', '哪个', '有没有', '有没', '是否',
+  '可以', '能否', '是不是', '为什么', '哪里', '多少', '介绍', '推荐', '一下', '一个',
+  '这个', '那个', '这些', '那些', '我的', '你的', '他们', '我们', '现在', '最近',
+  '情况', '问题', '方面', '内容', '东西', '方法', '方式', '需要', '应该', '可能',
+  '知道', '了解', '看看', '告诉', '请问', '求助', '谢谢', '麻烦', '帮我', '想要',
+]);
+
+function isStop(t) { return CJK_STOP.has(t); }
+
+// 问句里的「意图短语」。它们描述用户想要什么，但不描述主题本身，
+// 而且往往比主题词更具体 —— 实测问「免费 VPS 有哪些推荐」时，
+// 「有哪些推荐」的命中规模远小于「免费」，于是在打分上反客为主，
+// 检索回来的全是「XX 有哪些推荐」这类帖子，一条 VPS 都没有。
+// 先把这些剥掉，只留主题词。
+const Q_PATTERNS = [
+  /有哪些推荐/g, /有什么推荐/g, /有推荐/g, /求推荐/g, /推荐一下/g, /推荐几[个款种]/g, /推荐吗/g,
+  /有没有/g, /有哪些/g, /有没/g, /是什么/g, /什么叫/g, /怎么样/g, /怎么弄/g, /怎么/g, /如何/g,
+  /请问/g, /大佬们/g, /佬们/g, /老哥们/g, /各位/g, /帮我/g, /我想/g, /想要/g,
+  /一下/g, /一个/g, /最好/g, /看看/g, /求/g, /吧/g, /呀/g, /呢/g, /吗/g,
+];
+
+function stripQuestionPatterns(s) {
+  let t = String(s || '');
+  for (const re of Q_PATTERNS) t = t.replace(re, ' ');
+  return t.replace(/\s+/g, ' ').trim();
+}
+
+// 从一段中文里生成长度 4→3→2 的候选片段。
+// 原来的实现只取「从 0 开始、步长 3 的 4 字片段」，
+// 对「任推邦相关」只能切出「任推邦相」，一个字之差就全落空。
+function cjkFragments(run) {
+  const out = [];
+  for (const len of [4, 3, 2]) {
+    for (let i = 0; i + len <= run.length && out.length < 24; i++) {
+      const f = run.slice(i, i + len);
+      if (isStop(f)) continue;
+      out.push(f);
+    }
+  }
+  return out;
+}
+
 export function retrieve(question, filters, topK) {
   const seen = new Map();
-  const push = (items, weight) => {
+  // 每条帖子命中了哪几个查询片段。
+  // 只按价值分排序时，「免费」这种大词（1.7 万条命中）会把只沾了它一条的
+  // 高分帖推上来，而真正同时包含「免费」和「VPS」的帖子反而被淹没。
+  // 记下命中集合，最后按「命中几个不同片段」加权。
+  const hits = new Map();
+
+  const push = (items, weight, key) => {
     for (const it of items) {
       const prev = seen.get(it.id);
       const tags = it.tags || [];
@@ -256,28 +310,67 @@ export function retrieve(question, filters, topK) {
       if (/求推荐|求助|请问|怎么弄|有没有人|吗？|\?$/.test(String(it.text || '').slice(0, 80))) sc *= 0.6;
       if (String(it.text || '').length < 45) sc *= 0.55;
       if (!prev || sc > prev.sc) seen.set(it.id, { post: it, sc: sc });
+      if (key) {
+        let s = hits.get(it.id);
+        if (!s) { s = new Set(); hits.set(it.id, s); }
+        s.add(key);
+      }
     }
   };
+
   const q = String(question || '').trim();
   const whole = q.replace(/[?？。，,！!]/g, ' ').trim();
+
+  // 1) 整句（最精确）
   if ([...whole].length >= 3) {
-    try { push(store.search(Object.assign({}, filters, { q: whole, size: 12, sort: 'relevance' })).items, 1.4); } catch (e) {}
+    try { push(store.search(Object.assign({}, filters, { q: whole, size: 12, sort: 'relevance' })).items, 1.4, 'whole'); } catch (e) {}
   }
-  const terms = store.splitTerms(q).filter(t => [...t].length >= 2);
+
+  // 2) 按标点切出的词
+  // 主题词从「剥掉意图短语」后的文本里取
+  const topic = stripQuestionPatterns(q) || q;
+  const terms = store.splitTerms(topic).filter(t => [...t].length >= 2 && !isStop(t));
   for (const t of terms.slice(0, 6)) {
-    try { push(store.search(Object.assign({}, filters, { q: t, size: 8, sort: 'relevance' })).items, 1.0); } catch (e) {}
+    try {
+      const r = store.search(Object.assign({}, filters, { q: t, size: 8, sort: 'relevance' }));
+      let w = 1.0;
+      const total = Number(r.total || 0);
+      if (total > 200) w *= 1 / (1 + Math.log10(total / 200) * 0.8);
+      push(r.items, w, 't:' + t);
+    } catch (e) {}
   }
-  const cjk = q.match(/[\u4e00-\u9fa5]{3,}/g) || [];
-  for (const run of cjk) {
-    for (let i = 0; i + 4 <= run.length && i < 8; i += 3) {
-      const frag = run.slice(i, i + 4);
-      try { push(store.search(Object.assign({}, filters, { q: frag, size: 6, sort: 'relevance' })).items, 0.8); } catch (e) {}
-    }
+
+  // 3) 中文长串的 n-gram 回退（整句常搜不到，因为帖子里不会连着写「相关」）
+  const cjk = (stripQuestionPatterns(q) || q).match(/[一-龥]{3,}/g) || [];
+  const frags = [];
+  for (const run of cjk) for (const f of cjkFragments(run)) if (frags.indexOf(f) < 0) frags.push(f);
+  frags.sort((a, b) => b.length - a.length);
+  for (const frag of frags.slice(0, 10)) {
+    let w = frag.length >= 4 ? 0.9 : (frag.length === 3 ? 0.8 : 0.6);
+    try {
+      const r = store.search(Object.assign({}, filters, { q: frag, size: 6, sort: 'relevance' }));
+      // 按命中规模降权：一个片段能命中几千条，说明它没有区分度
+      // （「有哪些推荐」「相关」这类），不该和「VPS」这种具体词等权。
+      const total = Number(r.total || 0);
+      if (total > 200) w *= 1 / (1 + Math.log10(total / 200) * 0.8);
+      push(r.items, w, 'f:' + frag);
+    } catch (e) {}
   }
+
+  // 4) 兜底：一条都没命中时才知道真的没有。
+  //    不要静默拿「全库高分」冒充检索结果 —— 那会让模型对着一堆无关材料回答，
+  //    而界面还显示「检索到 12 条相关资料」。
   if (!seen.size) {
-    try { push(store.search(Object.assign({}, filters, { q: '', size: 12, sort: 'value' })).items, 0.4); } catch (e) {}
+    try { push(store.search(Object.assign({}, filters, { q: '', size: 6, sort: 'value' })).items, 0.15, 'fallback'); } catch (e) {}
   }
-  return [...seen.values()].sort((a, b) => b.sc - a.sc).slice(0, topK || 14).map(x => x.post);
+
+  // 命中越多不同片段，说明越贴题。这是把「免费 VPS」和「免费」区分开的关键。
+  const scored = [...seen.values()].map(x => {
+    const n = (hits.get(x.post.id) || new Set()).size;
+    return { post: x.post, sc: x.sc * (1 + 0.7 * Math.max(0, n - 1)) };
+  });
+  scored.sort((a, b) => b.sc - a.sc);
+  return scored.slice(0, topK || 14).map(x => x.post);
 }
 
 // ---------- prompt ----------
