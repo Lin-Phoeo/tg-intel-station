@@ -91,6 +91,21 @@ t.me/s/<频道>  ──scrape.mjs──▶  data/raw/<频道>/seg_*.jsonl
 - **返回格式兼容**：OpenAI 的 `data[].id`、智谱的 `models[].slug`、Anthropic 的 `data[].id` 都能解析
 - **错误区分**：401/403 提示 Key 无效；全部候选 404 则提示该服务商不开放模型列表 —— 此时手动填模型名即可，也可以单独填「模型接口地址」精确指定
 
+候选地址是**并发探测**的（不是按序等待），所以失败场景下最坏只等一轮超时，而不是 N 次串行超时。
+
+用真实服务商无 Key 探测验证过（返回 401 即说明地址猜对了，只是缺鉴权）：
+
+| 服务商 | 命中的候选地址 | 第几个命中 |
+|---|---|---|
+| DeepSeek | `/v1/models` | 1 |
+| 硅基流动 | `/v1/models` | 1 |
+| Moonshot Kimi | `/v1/models` | 1 |
+| 阿里通义 | `/compatible-mode/v1/models` | 1 |
+| 火山方舟 | `/api/v3/models` | 1 |
+| OpenRouter | `/v1/models` | 1（公开，实测 469 个模型） |
+| 智谱 GLM | `/api/paas/v1/models` | 2 |
+| Moonshot（`/anthropic` 子路径） | 剥离后 `/v1/models` | 2 |
+
 另外支持切换 **鉴权方式**（`Authorization: Bearer` / `x-api-key` / `x-goog-api-key`），自建中转站可以自由适配。
 
 ![获取模型](app/预览-模型获取.png)

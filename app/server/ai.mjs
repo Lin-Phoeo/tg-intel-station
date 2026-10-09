@@ -117,21 +117,30 @@ export function buildModelsUrlCandidates(baseUrl, modelsUrl) {
   if (modelsUrl && String(modelsUrl).trim()) { push(modelsUrl); return out; }
   if (!base) return out;
   if (/\/models$/i.test(base)) { push(base); return out; }
+
+  // 1) 最常用：直接拼 /models（base 已含 /v1 时它就是正确答案）
   push(base + '/models');
+
+  // 2) 兼容子路径（/anthropic、/api/coding…）：剥离后重试。
+  //    实测 Moonshot 这类把 Anthropic 协议挂子路径的源，正确答案在剥离后的 /v1/models，
+  //    所以放在第二优先，避免多打 3 次无效请求。
+  let root = null;
+  const lower = base.toLowerCase();
+  for (const suf of KNOWN_COMPAT_SUFFIXES) {
+    if (lower.endsWith(suf)) { root = base.slice(0, base.length - suf.length); break; }
+  }
+  if (root) { push(root + '/v1/models'); push(root + '/models'); }
+
+  // 3) base 未带版本号时，再试 /v1/models 与 /api/v1/models
   if (!/\/v\d+[a-z]*$/i.test(base)) {
     push(base + '/v1/models');
     push(base + '/api/v1/models');
   }
-  for (const suf of KNOWN_COMPAT_SUFFIXES) {
-    if (base.toLowerCase().endsWith(suf)) {
-      const root = base.slice(0, base.length - suf.length);
-      push(root + '/v1/models');
-      push(root + '/models');
-      break;
-    }
-  }
+
+  // 4) 兜底：把结尾的 /v4 之类版本段换成 /v1（实测智谱 /api/paas/v4 → /api/paas/v1/models 命中）
   const m = base.match(/^(.*)\/v\d+[a-z]*$/i);
   if (m) { push(m[1] + '/v1/models'); push(m[1] + '/models'); }
+  if (root) push(root + '/api/v1/models');
   return out;
 }
 
@@ -170,36 +179,46 @@ export async function fetchModels(cfg) {
   // 部分服务商（如 OpenRouter）的 /models 是公开端点，无 Key 也允许尝试；失败会返回 401 提示
   const headers = headersFor({ apiKey: cfg.apiKey, apiFormat: cfg.apiFormat, headers: cfg.headers });
   delete headers['Content-Type'];
-  const tried = [];
-  let lastStatus = null;
-  for (const url of candidates) {
-    tried.push(url);
-    let res;
+  const tried = candidates;
+
+  // 并发探测全部候选：失败时把「N 次串行超时」压缩成 1 次；再按候选顺序挑最优结果。
+  const probed = await Promise.all(candidates.map(async (url, idx) => {
     try {
-      res = await fetch(url, { headers: headers, signal: AbortSignal.timeout(15000), redirect: 'follow' });
+      const res = await fetch(url, { headers: headers, signal: AbortSignal.timeout(12000), redirect: 'follow' });
+      if (res.ok) {
+        let json = null;
+        try { json = await res.json(); } catch (e) { return { url: url, idx: idx, status: res.status, tag: 'parse' }; }
+        const models = parseModelList(json);
+        return { url: url, idx: idx, status: res.status, tag: models.length ? 'ok' : 'empty', models: models };
+      }
+      const tag = (res.status === 401 || res.status === 403) ? 'auth'
+        : (res.status === 404 || res.status === 405) ? 'notfound' : 'http';
+      const body = tag === 'http' ? (await res.text().catch(() => '')).slice(0, 200) : '';
+      return { url: url, idx: idx, status: res.status, tag: tag, body: body };
     } catch (e) {
-      lastStatus = 'network';
-      continue;
+      return { url: url, idx: idx, status: 0, tag: 'network' };
     }
-    if (res.ok) {
-      let json = null;
-      try { json = await res.json(); } catch (e) { return { ok: false, kind: 'parse', error: '接口返回的不是 JSON', tried: tried }; }
-      const models = parseModelList(json);
-      if (!models.length) return { ok: false, kind: 'empty', error: '接口返回成功，但没解析到任何模型（可能格式不兼容，请手动填写）', tried: tried };
-      models.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-      return { ok: true, models: models, tried: tried, url: url, count: models.length };
-    }
-    const body = (await res.text().catch(() => '')).slice(0, 300);
-    if (res.status === 401 || res.status === 403) {
-      return { ok: false, kind: 'auth', error: 'API Key 无效或无权限（HTTP ' + res.status + '）', tried: tried };
-    }
-    if (res.status === 404 || res.status === 405) { lastStatus = res.status; continue; }
-    return { ok: false, kind: 'http', error: 'HTTP ' + res.status + ' ' + body.replace(/\s+/g, ' ').slice(0, 160), tried: tried };
+  }));
+  probed.sort((a, b) => a.idx - b.idx);
+  const pick = (t) => probed.find(r => r.tag === t);
+
+  const ok = pick('ok');
+  if (ok) {
+    ok.models.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    return { ok: true, models: ok.models, tried: tried, url: ok.url, count: ok.models.length };
   }
+  const auth = pick('auth');
+  if (auth) return { ok: false, kind: 'auth', error: 'API Key 无效或无权限（HTTP ' + auth.status + '），也可能这个地址不是该服务商的模型接口', tried: tried };
+  const empty = pick('empty');
+  if (empty) return { ok: false, kind: 'empty', error: '接口返回成功，但没解析到任何模型（格式可能不兼容，请手动填写）', tried: tried };
+  const http = pick('http');
+  if (http) return { ok: false, kind: 'http', error: 'HTTP ' + http.status + ' ' + String(http.body || '').replace(/\s+/g, ' ').slice(0, 160), tried: tried };
+  const parse = pick('parse');
+  if (parse) return { ok: false, kind: 'parse', error: '接口返回的不是 JSON（这个地址可能不是模型接口）', tried: tried };
   return {
     ok: false,
     kind: 'notfound',
-    error: '试过的地址都没有 /models 接口（HTTP ' + (lastStatus || 'failed') + '）。该服务商可能不开放模型列表，请手动填写模型名，或在下面填「模型接口地址」。',
+    error: '试过的 ' + candidates.length + ' 个地址都没有 /models 接口。该服务商可能不开放模型列表，请手动填写模型名，或在下面填「模型接口地址」。',
     tried: tried,
   };
 }
