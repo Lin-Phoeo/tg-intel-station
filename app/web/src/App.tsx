@@ -139,9 +139,23 @@ export default function App() {
     } catch (e) {}
   }
   useEffect(() => { const t = setTimeout(() => setDq(q), 260); return () => clearTimeout(t); }, [q]);
+
+  // 光标是否在可输入的地方。全局快捷键必须先问这个，否则在表单里打字
+  // 会被快捷键抢走 —— 之前填模型配置时输入 "/" 就会跳到搜索框。
+  const isTyping = () => {
+    const t = document.activeElement as HTMLElement | null;
+    if (!t) return false;
+    return t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable;
+  };
+
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      if (e.key === '/' && document.activeElement !== searchRef.current) { e.preventDefault(); searchRef.current?.focus(); }
+      // 正在输入时不抢键
+      if (e.key === '/' && !isTyping()) {
+        e.preventDefault();
+        searchRef.current?.focus();
+        return;
+      }
       if (e.key === 'Escape') { setSettingsOpen(false); }
     };
     window.addEventListener('keydown', h);
@@ -275,7 +289,7 @@ export default function App() {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const t = e.target as HTMLElement | null;
-      const typing = !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+      const typing = !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setPaletteOpen(o => !o); return; }
       if (paletteOpen) return;
       if (typing) { if (e.key === 'Escape') t && t.blur(); return; }

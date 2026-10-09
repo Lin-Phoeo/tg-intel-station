@@ -581,21 +581,42 @@ export function hasKey() {
   return !!(p && p.apiKey && p.baseUrl && p.model);
 }
 
+// 连通性测试。真实的 chat/completions 调用，不是只 ping 域名 ——
+// 这样能同时验出「地址通不通」「密钥对不对」「模型名存不存在」。
+// 返回耗时，界面可以据此显示延迟并帮用户挑最快的。
 export async function testConnection(profile) {
-  const s = loadSettings();
   const active = activeProfile();
   const baseUrl = String((profile && profile.baseUrl) || (active && active.baseUrl) || '').replace(/\/+$/, '');
   const apiKey = (profile && profile.apiKey) || (active && active.apiKey) || '';
   const model = (profile && profile.model) || (active && active.model) || '';
-  if (!baseUrl) throw new Error('请先填写 Base URL');
-  if (!apiKey) throw new Error('请先填写 API Key');
-  if (!model) throw new Error('请先填写模型名');
-  const res = await fetch(baseUrl + '/chat/completions', {
-    method: 'POST',
-    headers: headersFor({ apiKey: apiKey, headers: profile && profile.headers }),
-    body: JSON.stringify({ model: model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 5 }),
-    signal: AbortSignal.timeout(30000),
-  });
-  if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + (await res.text().catch(() => '')).slice(0, 200));
-  return { ok: true, model: model };
+  const apiFormat = (profile && profile.apiFormat) || (active && active.apiFormat) || 'openai';
+  if (!baseUrl) throw new Error('未填写 Base URL');
+  if (!model) throw new Error('未填写模型名');
+  if (!apiKey) throw new Error('未配置密钥');
+
+  const at = Date.now();
+  let res;
+  try {
+    res = await fetch(baseUrl + '/chat/completions', {
+      method: 'POST',
+      headers: headersFor({ apiKey: apiKey, apiFormat: apiFormat, headers: profile && profile.headers }),
+      body: JSON.stringify({ model: model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 5 }),
+      signal: AbortSignal.timeout(30000),
+    });
+  } catch (e) {
+    const c = e && e.cause;
+    throw new Error('连不上：' + String((c && c.code) || e.message || e).slice(0, 80));
+  }
+  const ms = Date.now() - at;
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    let hint = 'HTTP ' + res.status;
+    if (res.status === 401 || res.status === 403) hint = '密钥无效或无权访问（' + res.status + '）';
+    else if (res.status === 404) hint = '地址或模型不存在（404）';
+    else if (res.status === 429) hint = '请求过频或被限流（429）';
+    const err = new Error(hint + (body ? '  ' + body.slice(0, 120) : ''));
+    err.status = res.status;
+    throw err;
+  }
+  return { ok: true, model: model, ms: ms };
 }

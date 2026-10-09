@@ -237,6 +237,20 @@ async function api(req, res, pathname, query) {
 
   if (pathname === '/api/settings/test' && req.method === 'POST') {
     const body = await readBody(req);
+    // 传 all: true 就并发测完所有已保存的服务商，界面可一键「全部测速」
+    if (body && body.all) {
+      const s = ai.loadSettings();
+      const list = (s.profiles || []).filter(p => p.baseUrl && p.model && p.apiKey);
+      const out = await Promise.all(list.map(async p => {
+        try {
+          const r = await ai.testConnection(p);
+          return { id: p.id, ok: true, ms: r.ms };
+        } catch (e) {
+          return { id: p.id, ok: false, error: String(e.message || e).slice(0, 120) };
+        }
+      }));
+      return send(res, 200, { ok: true, results: out });
+    }
     try {
       const r = await ai.testConnection(body);
       return send(res, 200, { ok: true, result: r });

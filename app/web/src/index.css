@@ -135,6 +135,69 @@ body {
 .card:hover { border-color: var(--border); background: var(--bg-3); }
 .card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-soft); }
 
+/* ---------- 模型配置 ---------- */
+.preset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 7px; }
+.preset-card {
+  display: flex; flex-direction: column; gap: 2px; align-items: flex-start;
+  padding: 9px 11px; border-radius: var(--r-md);
+  background: var(--bg-2); border: 1px solid var(--border-soft);
+  color: var(--fg); cursor: pointer; text-align: left;
+  transition: background-color .13s, border-color .13s;
+}
+.preset-card:hover { background: var(--bg-3); border-color: var(--border); }
+.preset-card.add { flex-direction: row; align-items: center; gap: 5px; color: var(--fg-dim); justify-content: center; }
+.preset-card .pc-name { font-size: var(--fs-meta); font-weight: 600; }
+.preset-card .pc-note {
+  font-size: var(--fs-micro); color: var(--fg-mute);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+}
+
+.mprov {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border-radius: var(--r-md);
+  background: var(--bg-2); border: 1px solid var(--border-soft);
+  cursor: pointer; transition: background-color .13s, border-color .13s;
+}
+.mprov:hover { background: var(--bg-3); }
+.mprov.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, var(--bg-2)); }
+.mp-radio {
+  width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0;
+  border: 1.5px solid var(--border); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+}
+.mprov.on .mp-radio { background: var(--accent); border-color: var(--accent); }
+.mp-name { font-size: var(--fs-text); font-weight: 600; }
+.mp-cur {
+  font-size: var(--fs-micro); padding: 0 5px; border-radius: var(--r-sm);
+  background: var(--accent-soft); color: var(--accent); font-weight: 600;
+}
+.mp-nokey {
+  font-size: var(--fs-micro); padding: 0 5px; border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--amber) 16%, transparent); color: var(--amber);
+}
+.mp-sub {
+  font-size: var(--fs-micro); color: var(--fg-mute); margin-top: 3px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.mstat {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: var(--fs-micro); padding: 0 6px; border-radius: var(--r-sm);
+  font-variant-numeric: tabular-nums;
+}
+.mstat.idle { background: var(--bg-3); color: var(--fg-mute); }
+.mstat.ok { background: color-mix(in srgb, var(--green) 16%, transparent); color: var(--green); font-weight: 600; }
+.mstat.fail {
+  background: color-mix(in srgb, var(--rose) 16%, transparent); color: var(--rose);
+  max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.iconbtn { padding: 4px 7px; }
+
+.amsg { font-size: var(--fs-meta); padding: 7px 11px; border-radius: var(--r-sm); margin-top: 10px; }
+.amsg.ok { background: color-mix(in srgb, var(--green) 13%, transparent); color: var(--green); }
+.amsg.err { background: color-mix(in srgb, var(--rose) 13%, transparent); color: var(--rose); }
+.amsg.info { background: var(--bg-3); color: var(--fg-dim); }
+
 /* ---------- 顶部任务进度 ---------- */
 .topbar-prog {
   position: relative; border-bottom: 1px solid var(--border-soft);
