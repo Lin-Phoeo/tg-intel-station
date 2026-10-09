@@ -10,6 +10,7 @@ import * as source from './source.mjs';
 import * as sync from './sync.mjs';
 import * as backup from './backup.mjs';
 import * as semantic from './semantic.mjs';
+import * as rag from './rag.mjs';
 import * as aiClassify from './ai-classify.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -466,7 +467,7 @@ async function api(req, res, pathname, query) {
     const t0 = Date.now();
     try {
       ev({ type: 'status', stage: 'retrieving' });
-      const posts = ai.retrieve(question, filters, ai.loadSettings().topK || 14);
+      const posts = await rag.retrieve(question, filters, ai.loadSettings().topK || 14);
       ev({ type: 'sources', items: posts.map(p => ({ id: p.id, date: p.date, channel: p.channel, category: p.category, text: String(p.text || '').slice(0, 160), url: p.url, value: p.value })) });
       // 注意：API Key 存在每个服务商档案里（profiles[].apiKey），
       // 顶层 settings 根本没有 apiKey 字段。原先写成 settings.apiKey，

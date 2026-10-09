@@ -247,7 +247,7 @@ export async function fetchModels(cfg) {
 // 中文里高频但对检索没有区分度的词。
 // 实测：「任推邦相关」整句搜不到（0 条），但「相关」单独能命中 17,639 条 ——
 // 不加过滤的话，一个通用词就会把真正相关的内容挤掉。
-const CJK_STOP = new Set([
+export const CJK_STOP = new Set([
   '相关', '有关', '什么', '怎么', '怎样', '如何', '哪些', '哪个', '有没有', '有没', '是否',
   '可以', '能否', '是不是', '为什么', '哪里', '多少', '介绍', '推荐', '一下', '一个',
   '这个', '那个', '这些', '那些', '我的', '你的', '他们', '我们', '现在', '最近',
@@ -255,7 +255,7 @@ const CJK_STOP = new Set([
   '知道', '了解', '看看', '告诉', '请问', '求助', '谢谢', '麻烦', '帮我', '想要',
 ]);
 
-function isStop(t) { return CJK_STOP.has(t); }
+export function isStop(t) { return CJK_STOP.has(t); }
 
 // 问句里的「意图短语」。它们描述用户想要什么，但不描述主题本身，
 // 而且往往比主题词更具体 —— 实测问「免费 VPS 有哪些推荐」时，
@@ -269,7 +269,7 @@ const Q_PATTERNS = [
   /一下/g, /一个/g, /最好/g, /看看/g, /求/g, /吧/g, /呀/g, /呢/g, /吗/g,
 ];
 
-function stripQuestionPatterns(s) {
+export function stripQuestionPatterns(s) {
   let t = String(s || '');
   for (const re of Q_PATTERNS) t = t.replace(re, ' ');
   return t.replace(/\s+/g, ' ').trim();
@@ -278,7 +278,7 @@ function stripQuestionPatterns(s) {
 // 从一段中文里生成长度 4→3→2 的候选片段。
 // 原来的实现只取「从 0 开始、步长 3 的 4 字片段」，
 // 对「任推邦相关」只能切出「任推邦相」，一个字之差就全落空。
-function cjkFragments(run) {
+export function cjkFragments(run) {
   const out = [];
   for (const len of [4, 3, 2]) {
     for (let i = 0; i + len <= run.length && out.length < 24; i++) {

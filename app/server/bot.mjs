@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import * as store from './store.mjs';
 import { appendRaw } from './rawlog.mjs';
 import * as ai from './ai.mjs';
+import * as rag from './rag.mjs';
 import { classify } from '../../core/classify.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -328,7 +329,7 @@ async function handleUpdate(u) {
       if (!arg) { await reply(chatId, '用法：<code>/ask 最近有什么免费额度可以薅</code>', msg.message_id); return; }
       if (!ai.hasKey()) { await reply(chatId, '⚠️ 还没在应用里配置 AI 模型，暂时只能用 /so 搜索。', msg.message_id); return; }
       await reply(chatId, '🔎 正在检索并思考…', msg.message_id);
-      const posts = ai.retrieve(arg, {}, ai.loadSettings().topK || 14);
+      const posts = await rag.retrieve(arg, {}, ai.loadSettings().topK || 14);
       const msgs = ai.buildMessages(arg, posts, []);
       const answer = await ai.completeLLM(msgs);
       const out = answer.length > 3600 ? answer.slice(0, 3600) + '…' : answer;
