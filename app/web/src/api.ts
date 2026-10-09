@@ -71,6 +71,33 @@ export type ChatHandlers = {
   onError?: (message: string, raw?: any) => void;
 };
 
+// ---------- Telegram 机器人 ----------
+export async function getBot(): Promise<any> {
+  return (await fetch('/api/bot')).json();
+}
+export async function saveBot(patch: any): Promise<any> {
+  const r = await fetch('/api/bot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
+  return r.json();
+}
+export async function testBot(token?: string): Promise<any> {
+  const r = await fetch('/api/bot/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: token || '' }) });
+  return r.json();
+}
+export async function previewBot(patch?: any): Promise<any> {
+  const r = await fetch('/api/bot/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch || {}) });
+  return r.json();
+}
+export async function pushBot(patch?: any): Promise<any> {
+  const r = await fetch('/api/bot/push', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch || {}) });
+  return r.json();
+}
+export async function stopBot(): Promise<any> {
+  return (await fetch('/api/bot/stop', { method: 'POST' })).json();
+}
+export async function getBotStatus(): Promise<any> {
+  return (await fetch('/api/bot/status')).json();
+}
+
 export async function chat(body: any, h: ChatHandlers) {
   let res: Response;
   try {

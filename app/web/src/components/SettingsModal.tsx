@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getSettings, saveSettings, testSettings } from '../api';
 import { ModelPicker } from './ModelPicker';
+import { BotSettings } from './BotSettings';
 
 type Profile = { id: string; name: string; baseUrl: string; model: string; apiKey?: string; hasKey?: boolean; keyHint?: string; headers?: string; apiFormat?: string; modelsUrl?: string };
 const blank = (): Profile => ({ id: 'p' + Date.now().toString(36), name: '新服务商', baseUrl: '', model: '', apiKey: '', headers: '', apiFormat: 'openai', modelsUrl: '' });
@@ -14,6 +15,7 @@ export function SettingsModal({ open, onClose, onActiveChange }: { open: boolean
   const [editing, setEditing] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err' | 'info'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState<'ai' | 'bot'>(() => (new URLSearchParams(window.location.search).get('tab') === 'bot' ? 'bot' : 'ai'));
 
   useEffect(() => {
     if (!open) return;
@@ -76,6 +78,12 @@ export function SettingsModal({ open, onClose, onActiveChange }: { open: boolean
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }} onClick={onClose}>
       <div className="card" style={{ width: 680, maxWidth: '100%', maxHeight: '92vh', overflowY: 'auto', background: 'var(--bg-1)', padding: 24 }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+          <button className="btn" style={{ background: tab === 'ai' ? 'var(--bg-3)' : 'transparent', borderColor: tab === 'ai' ? 'var(--accent)' : 'var(--border)' }} onClick={() => setTab('ai')}>AI 模型</button>
+          <button className="btn" style={{ background: tab === 'bot' ? 'var(--bg-3)' : 'transparent', borderColor: tab === 'bot' ? 'var(--accent)' : 'var(--border)' }} onClick={() => setTab('bot')}>🤖 电报机器人</button>
+        </div>
+
+        {tab === 'ai' && (<>
         <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 4 }}>AI 模型设置</div>
         <div style={{ fontSize: 13, color: 'var(--fg-dim)', marginBottom: 18, lineHeight: 1.7 }}>
           可保存多个服务商并随时切换（类似 ccswitch）。支持任何 OpenAI 兼容接口，包括自建/第三方中转站。密钥只保存在本机 <code>app/data/settings.json</code>。
@@ -163,6 +171,18 @@ export function SettingsModal({ open, onClose, onActiveChange }: { open: boolean
           <button className="btn primary" onClick={() => persist()} disabled={busy}>保存全部</button>
           <button className="btn ghost" onClick={onClose}>关闭</button>
         </div>
+        </>)}
+
+        {tab === 'bot' && (<>
+          <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 4 }}>电报机器人</div>
+          <div style={{ fontSize: 13, color: 'var(--fg-dim)', marginBottom: 16, lineHeight: 1.7 }}>
+            让机器人在你的群里提供搜索、AI 问答，并定时推送情报日报。Token 只保存在本机 <code>app/data/bot.json</code>。
+          </div>
+          <BotSettings />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+            <button className="btn ghost" onClick={onClose}>关闭</button>
+          </div>
+        </>)}
       </div>
     </div>
   );

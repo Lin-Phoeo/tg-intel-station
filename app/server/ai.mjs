@@ -348,6 +348,28 @@ export async function streamLLM(messages, onDelta) {
   return full;
 }
 
+// 非流式调用，供机器人等场景使用
+export async function completeLLM(messages) {
+  const s = loadSettings();
+  const p = activeProfile();
+  if (!p || !p.baseUrl || !p.apiKey) throw new Error('NO_KEY');
+  const baseUrl = String(p.baseUrl).replace(/\/+$/, '');
+  const res = await fetch(baseUrl + '/chat/completions', {
+    method: 'POST',
+    headers: headersFor(p),
+    body: JSON.stringify({ model: p.model, messages: messages, stream: false, temperature: s.temperature == null ? 0.3 : s.temperature }),
+    signal: AbortSignal.timeout(120000),
+  });
+  if (!res.ok) throw new Error('模型返回 ' + res.status + '：' + (await res.text().catch(() => '')).slice(0, 200));
+  const j = await res.json();
+  return (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
+}
+
+export function hasKey() {
+  const p = activeProfile();
+  return !!(p && p.apiKey && p.baseUrl && p.model);
+}
+
 export async function testConnection(profile) {
   const s = loadSettings();
   const active = activeProfile();

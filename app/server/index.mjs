@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as store from './store.mjs';
 import * as ai from './ai.mjs';
+import * as bot from './bot.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const DIST = path.join(ROOT, 'app', 'web', 'dist');
@@ -115,6 +116,51 @@ async function api(req, res, pathname, query) {
     }
   }
 
+  if (pathname === '/api/bot') {
+    if (req.method === 'GET') return send(res, 200, { config: bot.publicConfig(), status: bot.getStatus() });
+    if (req.method === 'POST') {
+      const body = await readBody(req);
+      bot.saveConfig(body);
+      if (body.restart !== false) bot.restart();
+      return send(res, 200, { config: bot.publicConfig(), status: bot.getStatus() });
+    }
+  }
+
+  if (pathname === '/api/bot/status') {
+    return send(res, 200, { config: bot.publicConfig(), status: bot.getStatus() });
+  }
+
+  if (pathname === '/api/bot/stop' && req.method === 'POST') {
+    bot.stop();
+    return send(res, 200, { ok: true, config: bot.publicConfig(), status: bot.getStatus() });
+  }
+
+  if (pathname === '/api/bot/test' && req.method === 'POST') {
+    const body = await readBody(req);
+    try {
+      const me = await bot.getMe(body.token || undefined);
+      return send(res, 200, { ok: true, me: { id: me.id, username: me.username, name: me.first_name } });
+    } catch (e) { return send(res, 200, { ok: false, error: String(e.message || e) }); }
+  }
+
+  if (pathname === '/api/bot/preview' && req.method === 'POST') {
+    const body = await readBody(req);
+    const clean = {};
+    for (const k of Object.keys(body || {})) if (body[k] !== undefined && body[k] !== null && body[k] !== '') clean[k] = body[k];
+    const d = bot.buildDigest(clean);
+    return send(res, 200, { ok: true, html: d.html, count: d.count });
+  }
+
+  if (pathname === '/api/bot/push' && req.method === 'POST') {
+    const body = await readBody(req);
+    const clean = {};
+    for (const k of Object.keys(body || {})) if (body[k] !== undefined && body[k] !== null && body[k] !== '') clean[k] = body[k];
+    try {
+      const r = await bot.pushDigest(clean.chatId || undefined, clean);
+      return send(res, 200, { ok: true, sent: r.sent, chatId: r.chatId });
+    } catch (e) { return send(res, 200, { ok: false, error: String(e.message || e) }); }
+  }
+
   if (pathname === '/api/chat' && req.method === 'POST') {
     const body = await readBody(req);
     const question = String(body.question || '').slice(0, 2000);
@@ -197,4 +243,10 @@ server.listen(PORT, '127.0.0.1', () => {
   const f = store.facets();
   console.log('Telegram 情报站 running: http://127.0.0.1:' + PORT);
   console.log('索引帖子数:', (f.meta && f.meta.count) || '?');
+  try {
+    const r = bot.start();
+    const b = bot.publicConfig();
+    if (r.started) console.log('电报机器人: 已启动' + (b.pushChatId ? '，推送目标 ' + b.pushChatId : ''));
+    else if (b.hasToken) console.log('电报机器人: 未启用（' + r.reason + '）');
+  } catch (e) { console.log('电报机器人启动失败:', String(e.message || e)); }
 });

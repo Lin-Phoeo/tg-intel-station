@@ -14,8 +14,9 @@ app/data/*.db
 app/data/*.db-wal
 app/data/*.db-shm
 
-# ---------- 本机 AI 配置（含 API Key，绝不能提交）----------
+# ---------- 本机配置（含 API Key / Bot Token，绝不能提交）----------
 app/data/settings.json
+app/data/bot.json
 
 # ---------- 生成的大体积导出 ----------
 output/数据/
