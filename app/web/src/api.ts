@@ -98,6 +98,32 @@ export async function getBotStatus(): Promise<any> {
   return (await fetch('/api/bot/status')).json();
 }
 
+// ---------- 链接抓取 ----------
+export type SourceJob = {
+  id: string; input: string; status: string; phase: string;
+  imported: number; skipped: number; scanned: number; total: number;
+  error: string | null; kind: string; title: string; note: string;
+  startedAt: number; finishedAt: number | null;
+};
+export async function resolveSource(input: string): Promise<any> {
+  const r = await fetch('/api/source/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ input }) });
+  return r.json();
+}
+export async function importSource(input: string, maxMessages: number): Promise<{ ok: boolean; job: SourceJob }> {
+  const r = await fetch('/api/source/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ input, maxMessages }) });
+  return r.json();
+}
+export async function getSourceJobs(): Promise<{ jobs: SourceJob[]; sources: any[] }> {
+  return (await fetch('/api/source/jobs')).json();
+}
+export async function deleteSource(id: string): Promise<any> {
+  const r = await fetch('/api/sources/' + encodeURIComponent(id), { method: 'DELETE' });
+  return r.json();
+}
+export async function listSources(): Promise<{ sources: any[] }> {
+  return (await fetch('/api/sources')).json();
+}
+
 export async function chat(body: any, h: ChatHandlers) {
   let res: Response;
   try {

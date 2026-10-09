@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import * as store from './store.mjs';
 import * as ai from './ai.mjs';
 import * as bot from './bot.mjs';
+import * as source from './source.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const DIST = path.join(ROOT, 'app', 'web', 'dist');
@@ -114,6 +115,40 @@ async function api(req, res, pathname, query) {
     } catch (e) {
       return send(res, 200, { ok: false, error: String(e.message || e) });
     }
+  }
+
+  if (pathname === '/api/source/resolve' && req.method === 'POST') {
+    const body = await readBody(req);
+    try { return send(res, 200, await source.resolve(String(body.input || ''))); }
+    catch (e) { return send(res, 200, { ok: false, error: String(e.message || e) }); }
+  }
+
+  if (pathname === '/api/source/import' && req.method === 'POST') {
+    const body = await readBody(req);
+    const input = String(body.input || '').trim();
+    if (!input) return send(res, 400, { error: 'empty input' });
+    const j = source.startImport(input, { maxMessages: Number(body.maxMessages || 2000) });
+    return send(res, 200, { ok: true, job: j });
+  }
+
+  if (pathname === '/api/source/jobs') {
+    return send(res, 200, { jobs: source.listJobs(), sources: store.listSources() });
+  }
+
+  const mJob = pathname.match(/^\/api\/source\/job\/([\w]+)$/);
+  if (mJob) {
+    const j = source.getJob(mJob[1]);
+    return j ? send(res, 200, j) : send(res, 404, { error: 'not found' });
+  }
+
+  if (pathname === '/api/sources') {
+    if (req.method === 'GET') return send(res, 200, { sources: store.listSources() });
+  }
+
+  const mSrc = pathname.match(/^\/api\/sources\/(.+)$/);
+  if (mSrc && req.method === 'DELETE') {
+    const ok = store.removeSource(decodeURIComponent(mSrc[1]));
+    return send(res, 200, { ok: ok, sources: store.listSources() });
   }
 
   if (pathname === '/api/bot') {

@@ -16,6 +16,7 @@ function ensureSchema() {
     if (cols.indexOf('author') < 0) db.exec("ALTER TABLE posts ADD COLUMN author TEXT DEFAULT ''");
     if (cols.indexOf('group_title') < 0) db.exec("ALTER TABLE posts ADD COLUMN group_title TEXT DEFAULT ''");
     db.exec('CREATE INDEX IF NOT EXISTS idx_posts_lookup ON posts(channel, msg_id)');
+    db.exec("CREATE TABLE IF NOT EXISTS sources(id TEXT PRIMARY KEY, kind TEXT, title TEXT, members TEXT, url TEXT, added_at TEXT, last_sync TEXT, imported INTEGER DEFAULT 0, note TEXT)");
   } catch (e) { /* 只读打开或迁移失败不应阻断服务 */ }
 }
 
@@ -28,8 +29,8 @@ export function open() {
   return db;
 }
 
-// 把群里收到的消息写进同一个索引库（这是公开预览页抓不到的来源）
-export function insertGroupPost(rec) {
+// 把所有来源的消息写进同一个索引库（频道抓取 / 群消息 / 网页采集）
+export function insertPost(rec) {
   const d = open();
   const exists = d.prepare('SELECT id FROM posts WHERE channel = ? AND msg_id = ? LIMIT 1').get(rec.channel, rec.msgId);
   if (exists) return { inserted: false, id: exists.id, reason: 'duplicate' };
@@ -39,12 +40,48 @@ export function insertGroupPost(rec) {
     id, rec.channel, rec.msgId, rec.date || '', rec.ts || 0, 0, rec.media || '',
     rec.text || '', rec.category || '', rec.categories || '', rec.tags || '', rec.hashtags || '',
     rec.value || 0, rec.content || 0, rec.url || '', rec.links || '', rec.domains || '', '',
-    'group', rec.author || '', rec.groupTitle || ''
+    rec.source || 'group', rec.author || '', rec.groupTitle || ''
   );
   d.prepare('INSERT INTO posts_fts(rowid, text, tags, domains, channel) VALUES(?,?,?,?,?)').run(
     id, rec.text || '', rec.tags || '', rec.domains || '', rec.channel
   );
   return { inserted: true, id: id };
+}
+
+export const insertGroupPost = insertPost;
+
+// ---------- 来源管理（用户手动添加的链接）----------
+export function listSources() {
+  const d = open();
+  return d.prepare('SELECT * FROM sources ORDER BY added_at DESC').all();
+}
+
+export function getSource(id) {
+  const d = open();
+  return d.prepare('SELECT * FROM sources WHERE id = ?').get(id) || null;
+}
+
+export function upsertSource(s) {
+  const d = open();
+  const cur = getSource(s.id) || {};
+  const merged = Object.assign({ id: s.id, kind: '', title: '', members: '', url: '', added_at: new Date().toISOString(), last_sync: '', imported: 0, note: '' }, cur, s);
+  d.prepare('INSERT INTO sources(id,kind,title,members,url,added_at,last_sync,imported,note) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET kind=excluded.kind, title=excluded.title, members=excluded.members, url=excluded.url, last_sync=excluded.last_sync, imported=excluded.imported, note=excluded.note').run(
+    merged.id, merged.kind, merged.title, merged.members, merged.url, merged.added_at, merged.last_sync, merged.imported, merged.note
+  );
+  return getSource(s.id);
+}
+
+export function removeSource(id) {
+  const d = open();
+  const n = getSource(id);
+  d.prepare('DELETE FROM sources WHERE id = ?').run(id);
+  return !!n;
+}
+
+export function countByChannel(channel) {
+  const d = open();
+  const r = d.prepare('SELECT COUNT(*) AS n FROM posts WHERE channel = ?').get(channel);
+  return r ? r.n : 0;
 }
 
 export function groupStats() {

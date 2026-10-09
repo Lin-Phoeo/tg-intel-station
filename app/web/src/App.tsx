@@ -5,6 +5,7 @@ import { PostCard } from './components/PostCard';
 import { Detail } from './components/Detail';
 import { ChatPanel } from './components/ChatPanel';
 import { SettingsModal } from './components/SettingsModal';
+import { AddSourceModal } from './components/AddSourceModal';
 import { catColor, fmtNum } from './lib/util';
 
 const PAGE = 40;
@@ -51,6 +52,8 @@ export default function App() {
   const [favPosts, setFavPosts] = useState<Post[]>([]);
   const [askPost, setAskPost] = useState<Post | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(() => params.get('settings') === '1');
+  const [settingsTab, setSettingsTab] = useState<'ai' | 'bot'>('ai');
+  const [addSourceOpen, setAddSourceOpen] = useState(() => params.get('addsource') === '1');
   const searchRef = useRef<HTMLInputElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
@@ -164,6 +167,7 @@ export default function App() {
           <button className="btn ghost" style={{ justifyContent: 'flex-start', background: view === 'feed' ? 'var(--bg-3)' : 'transparent', color: view === 'feed' ? 'var(--fg)' : 'var(--fg-dim)' }} onClick={() => { setView('feed'); setCat(''); setTags([]); setChannel(''); setQ(''); }}>📡 全部信息流</button>
           <button className="btn ghost" style={{ justifyContent: 'flex-start', background: view === 'favs' ? 'var(--bg-3)' : 'transparent', color: view === 'favs' ? 'var(--fg)' : 'var(--fg-dim)' }} onClick={showFavs}>{'★ 我的收藏 (' + favIds.length + ')'}</button>
           <button className="btn ghost" style={{ justifyContent: 'flex-start' }} onClick={() => { setPanel('chat'); setRightOpen(true); }}>✨ AI 情报助手</button>
+          <button className="btn ghost" style={{ justifyContent: 'flex-start' }} onClick={() => setAddSourceOpen(true)}>🔗 按链接抓取</button>
         </div>
 
         <div className="divider" style={{ margin: '10px 0' }} />
@@ -272,7 +276,8 @@ export default function App() {
         </aside>
       )}
 
-      <SettingsModal open={settingsOpen} onClose={() => { setSettingsOpen(false); refreshProviders(); }} onActiveChange={refreshProviders} />
+      <SettingsModal open={settingsOpen} onClose={() => { setSettingsOpen(false); refreshProviders(); }} onActiveChange={refreshProviders} initialTab={settingsTab} />
+      <AddSourceModal open={addSourceOpen} onClose={() => setAddSourceOpen(false)} onImported={() => { facetsApi().then(setFac); load(1); }} />
     </div>
   );
 }

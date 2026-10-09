@@ -6,7 +6,7 @@ import { BotSettings } from './BotSettings';
 type Profile = { id: string; name: string; baseUrl: string; model: string; apiKey?: string; hasKey?: boolean; keyHint?: string; headers?: string; apiFormat?: string; modelsUrl?: string };
 const blank = (): Profile => ({ id: 'p' + Date.now().toString(36), name: '新服务商', baseUrl: '', model: '', apiKey: '', headers: '', apiFormat: 'openai', modelsUrl: '' });
 
-export function SettingsModal({ open, onClose, onActiveChange }: { open: boolean; onClose: () => void; onActiveChange?: (name: string) => void }) {
+export function SettingsModal({ open, onClose, onActiveChange, initialTab }: { open: boolean; onClose: () => void; onActiveChange?: (name: string) => void; initialTab?: 'ai' | 'bot' }) {
   const [presets, setPresets] = useState<any[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [activeId, setActiveId] = useState('');
@@ -15,7 +15,8 @@ export function SettingsModal({ open, onClose, onActiveChange }: { open: boolean
   const [editing, setEditing] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err' | 'info'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState<'ai' | 'bot'>(() => (new URLSearchParams(window.location.search).get('tab') === 'bot' ? 'bot' : 'ai'));
+  const [tab, setTab] = useState<'ai' | 'bot'>(() => (initialTab || (new URLSearchParams(window.location.search).get('tab') === 'bot' ? 'bot' : 'ai')));
+  useEffect(() => { if (open && initialTab) setTab(initialTab); }, [open, initialTab]);
 
   useEffect(() => {
     if (!open) return;
