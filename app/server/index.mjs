@@ -102,6 +102,21 @@ async function api(req, res, pathname, query) {
   const mClu = pathname.match(/^\/api\/cluster\/(\d+)$/);
   if (mClu) return send(res, 200, { items: store.clusterMembers(mClu[1]) });
 
+  // ---------- 检索式保存 ----------
+  if (pathname === '/api/searches') {
+    if (req.method === 'GET') return send(res, 200, { items: store.listSavedSearches() });
+    if (req.method === 'POST') {
+      const body = await readBody(req).catch(() => ({}));
+      const id = store.saveSearch(body.name, body.params);
+      return send(res, 200, { ok: true, id: id, items: store.listSavedSearches() });
+    }
+  }
+  const mSs = pathname.match(/^\/api\/searches\/(\d+)$/);
+  if (mSs && req.method === 'DELETE') {
+    const ok = store.removeSavedSearch(mSs[1]);
+    return send(res, 200, { ok: ok, items: store.listSavedSearches() });
+  }
+
   // ---------- 收藏 ----------
   if (pathname === '/api/favorites') {
     if (req.method === 'GET') return send(res, 200, { items: store.listFavorites(), ids: store.favoriteIds() });

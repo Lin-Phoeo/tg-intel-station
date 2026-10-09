@@ -67,6 +67,8 @@ function createSchema() {
   db.exec("CREATE TABLE IF NOT EXISTS subscriptions(id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT NOT NULL, tags TEXT DEFAULT '', min_value REAL DEFAULT 0, enabled INTEGER DEFAULT 1, created_at TEXT, last_hit_at TEXT, hit_count INTEGER DEFAULT 0)");
   db.exec("CREATE TABLE IF NOT EXISTS app_state(k TEXT PRIMARY KEY, v TEXT)");
   db.exec('CREATE TABLE IF NOT EXISTS embeddings(post_id INTEGER PRIMARY KEY, vec BLOB, dim INTEGER, norm REAL, model TEXT, at TEXT)');
+  db.exec("CREATE TABLE IF NOT EXISTS saved_searches(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, params TEXT NOT NULL, created_at TEXT)");
+  db.exec("CREATE TABLE IF NOT EXISTS saved_searches(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, params TEXT NOT NULL, created_at TEXT)");
   db.exec('CREATE INDEX IF NOT EXISTS idx_posts_lookup ON posts(channel, msg_id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_posts_cluster ON posts(cluster_key)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_posts_rep ON posts(rep_id)');
@@ -100,6 +102,7 @@ function migrate() {
   db.exec("CREATE TABLE IF NOT EXISTS subscriptions(id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT NOT NULL, tags TEXT DEFAULT '', min_value REAL DEFAULT 0, enabled INTEGER DEFAULT 1, created_at TEXT, last_hit_at TEXT, hit_count INTEGER DEFAULT 0)");
   db.exec("CREATE TABLE IF NOT EXISTS app_state(k TEXT PRIMARY KEY, v TEXT)");
   db.exec('CREATE TABLE IF NOT EXISTS embeddings(post_id INTEGER PRIMARY KEY, vec BLOB, dim INTEGER, norm REAL, model TEXT, at TEXT)');
+  db.exec("CREATE TABLE IF NOT EXISTS saved_searches(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, params TEXT NOT NULL, created_at TEXT)");
 }
 
 function ensureSchema() {
@@ -337,6 +340,34 @@ export function markSubscriptionHit(id, count) {
   const d = open();
   d.prepare('UPDATE subscriptions SET last_hit_at = ?, hit_count = hit_count + ? WHERE id = ?')
     .run(new Date().toISOString(), count, Number(id));
+}
+
+// ---------- 检索式保存 ----------
+// 用户常查的就那么几个词（免费 VPS、AI 工具、开源副业…），
+// 每次都重设一遍分类/标签/时间很烦，保存下来一键召回。
+export function listSavedSearches() {
+  const d = open();
+  return d.prepare('SELECT id, name, params, created_at FROM saved_searches ORDER BY id DESC').all()
+    .map(r => { let p = {}; try { p = JSON.parse(r.params || '{}'); } catch (e) {} return { id: Number(r.id), name: r.name, params: p, at: r.created_at }; });
+}
+
+export function saveSearch(name, params) {
+  const d = open();
+  const nm = String(name || '').trim().slice(0, 40) || '未命名检索';
+  const js = JSON.stringify(params || {});
+  // 同名直接覆盖，避免反复保存堆出一串重复项
+  const exist = d.prepare('SELECT id FROM saved_searches WHERE name = ?').get(nm);
+  if (exist) {
+    d.prepare('UPDATE saved_searches SET params = ?, created_at = ? WHERE id = ?').run(js, new Date().toISOString(), exist.id);
+    return Number(exist.id);
+  }
+  const r = d.prepare('INSERT INTO saved_searches(name, params, created_at) VALUES(?,?,?)').run(nm, js, new Date().toISOString());
+  return Number(r.lastInsertRowid);
+}
+
+export function removeSavedSearch(id) {
+  const d = open();
+  return Number(d.prepare('DELETE FROM saved_searches WHERE id = ?').run(Number(id)).changes) > 0;
 }
 
 // ---------- 应用状态（上次访问时间等）----------

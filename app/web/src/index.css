@@ -292,6 +292,11 @@ body {
 .chip .cdot { width: 6px; height: 6px; border-radius: 3px; }
 .chip .cn { font-size: var(--fs-micro); color: var(--fg-mute); font-variant-numeric: tabular-nums; margin-left: 1px; }
 .chip.on .cn { color: var(--accent); }
+.chip.saved { border-color: color-mix(in srgb, var(--accent) 34%, transparent); color: var(--accent); }
+.chip.saved:hover { background: var(--accent-soft); }
+.chip.saved .cn { opacity: .55; margin-left: 1px; }
+.chip.saved .cn:hover { opacity: 1; color: var(--rose); }
+
 .catbar-label { font-size: var(--fs-micro); color: var(--fg-mute); flex-shrink: 0; letter-spacing: .06em; padding-right: 2px; }
 .catbar-gap { width: 14px; flex-shrink: 0; }
 

@@ -64,6 +64,18 @@ export async function fetchModelsForConfig(payload: any): Promise<ModelFetchResu
   return r.json();
 }
 
+export async function listSearches(): Promise<{ items: any[] }> {
+  return (await fetch('/api/searches')).json();
+}
+export async function saveSearch(name: string, params: any): Promise<{ ok: boolean; items: any[] }> {
+  const r = await fetch('/api/searches', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, params }) });
+  return r.json();
+}
+export async function removeSearch(id: number): Promise<{ ok: boolean; items: any[] }> {
+  const r = await fetch('/api/searches/' + id, { method: 'DELETE' });
+  return r.json();
+}
+
 export async function testSettings(payload: any): Promise<{ ok: boolean; error?: string; result?: any }> {
   const r = await fetch('/api/settings/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
   return r.json();

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Zap, Radio, Star, Sparkles, Link2, Bell, Search, X, Settings, FileText,
-  Sun, Moon, Type, PanelRightClose, RefreshCw, SlidersHorizontal,
+  Sun, Moon, Type, PanelRightClose, RefreshCw, SlidersHorizontal, BookmarkPlus, Bookmark,
 } from 'lucide-react';
 import {
   search as searchApi, facets as facetsApi, getPost, related as relApi, getSettings, getClusterMembers,
   listFavorites, addFavorite, removeFavorite, getState, setState, checkSubscriptions, semanticQuery, runSync,
+  listSearches, saveSearch, removeSearch,
 } from './api';
 import type { Post, Facets } from './api';
 import { PostCard } from './components/PostCard';
@@ -57,6 +58,7 @@ export default function App() {
   const [mode, setMode] = useState('');
   const [sel, setSel] = useState<Post | null>(null);
   const [relBy, setRelBy] = useState('');
+  const [searches, setSearches] = useState<any[]>([]);
   const [rel, setRel] = useState<Post[]>([]);
   const [cluster, setCluster] = useState<Post[]>([]);
   const [collapse, setCollapse] = useState(() => localStorage.getItem('tg.collapse') !== '0');
@@ -128,6 +130,45 @@ export default function App() {
     })();
   }, []);
   useEffect(() => { facetsApi().then(setFac); }, []);
+  useEffect(() => { listSearches().then(r => setSearches(r.items || [])).catch(() => {}); }, []);
+
+  // 当前筛选条件（用于保存/召回）。空值不写入，保持记录精简。
+  function currentFilters() {
+    const f: any = {};
+    if (q.trim()) f.q = q.trim();
+    if (cat) f.cat = cat;
+    if (tags.length) f.tags = tags;
+    if (channel) f.channel = channel;
+    if (days) f.days = days;
+    if (sort && sort !== 'relevance') f.sort = sort;
+    if (semantic) f.semantic = 1;
+    return f;
+  }
+  async function doSaveSearch() {
+    const f = currentFilters();
+    if (!Object.keys(f).length) return;
+    const suggest = f.q || f.cat || (f.tags && f.tags[0]) || '我的检索';
+    const name = window.prompt('给这个检索起个名字（同名会覆盖）', String(suggest).slice(0, 20));
+    if (!name) return;
+    const r = await saveSearch(name, f);
+    setSearches(r.items || []);
+  }
+  function applySearch(s: any) {
+    const p = s.params || {};
+    setQ(p.q || '');
+    setCat(p.cat || '');
+    setTags(Array.isArray(p.tags) ? p.tags : []);
+    setChannel(p.channel || '');
+    setDays(Number(p.days) || 0);
+    setSort(p.sort || 'relevance');
+    setSemantic(!!p.semantic);
+    setView('feed');
+  }
+  async function dropSearch(e: any, id: number) {
+    e.stopPropagation();
+    const r = await removeSearch(id);
+    setSearches(r.items || []);
+  }
   const [providers, setProviders] = useState<{ id: string; name: string; hasKey: boolean }[]>([]);
   const [activeId, setActiveId] = useState('');
   function refreshProviders() {
@@ -399,6 +440,16 @@ export default function App() {
         {/* 分类筛选条：从侧栏移到这里。横向滚动，不占垂直空间，
             也不会再把分类列表挤下去。 */}
         <div className="surface catbar">
+          {searches.length > 0 && (<>
+            {searches.slice(0, 6).map(s => (
+              <span key={s.id} className="chip saved" onClick={() => applySearch(s)}
+                title={'点击应用：' + JSON.stringify(s.params).slice(0, 120)}>
+                <Bookmark size={11} strokeWidth={2} />{s.name}
+                <span className="cn" onClick={e => dropSearch(e, s.id)} title="删除">✕</span>
+              </span>
+            ))}
+            <span className="catbar-gap" />
+          </>)}
           <span className={'chip' + (!cat ? ' on' : '')} onClick={() => setCat('')}>
             全部<span className="cn">{fac ? fmtNum(Number(fac.meta.visible || fac.meta.count || 0)) : ''}</span>
           </span>
@@ -408,6 +459,9 @@ export default function App() {
             </span>
           ))}
           <span style={{ flex: 1, minWidth: 12 }} />
+          <span className="chip" onClick={doSaveSearch} title="把当前筛选条件存下来，下次一键召回">
+            <BookmarkPlus size={12} strokeWidth={2} />保存检索
+          </span>
           <span className={'chip' + (showFilters ? ' on' : '')} onClick={() => setShowFilters(v => !v)} title="展开标签与频道筛选">
             <SlidersHorizontal size={12} strokeWidth={2} />筛选
             {(tags.length + (channel ? 1 : 0)) > 0 ? <span className="cn">{tags.length + (channel ? 1 : 0)}</span> : null}
