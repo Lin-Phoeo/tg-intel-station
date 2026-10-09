@@ -135,6 +135,14 @@ body {
 .card:hover { border-color: var(--border); background: var(--bg-3); }
 .card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-soft); }
 
+/* ---------- 同步确认 ---------- */
+.sync-info {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 9px 14px;
+  background: var(--bg-2); border-radius: var(--r-md); padding: 11px 13px;
+}
+.sync-info .k { display: block; font-size: var(--fs-micro); color: var(--fg-mute); }
+.sync-info .v { display: block; font-size: var(--fs-meta); font-weight: 600; color: var(--fg); font-variant-numeric: tabular-nums; }
+
 /* ---------- 模型配置 ---------- */
 .preset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 7px; }
 .preset-card {

@@ -14,6 +14,7 @@ import { ChatPanel } from './components/ChatPanel';
 import { SettingsModal } from './components/SettingsModal';
 import { AddSourceModal } from './components/AddSourceModal';
 import { TopProgress } from './components/TopProgress';
+import { SyncConfirm } from './components/SyncConfirm';
 import { SubscriptionsModal } from './components/SubscriptionsModal';
 import { CommandPalette } from './components/CommandPalette';
 import type { Cmd } from './components/CommandPalette';
@@ -251,9 +252,13 @@ export default function App() {
     setView('favs');
     try { const r = await listFavorites(); setFavPosts(r.items || []); setFavIds(r.ids || []); } catch (e) { setFavPosts([]); }
   }
-  // 所有「一键补齐」的入口都走这里，并记下触发来源。
-  // 之前只有按钮能触发、且不留痕迹，一旦发现数据变多了没法查是哪儿来的。
-  async function startSync(by: string) {
+  // 所有「一键补齐」的入口都先走这里：弹二次确认，并记下触发来源。
+  // 之前点一下就直接开跑，误触过；而且不留痕迹，数据变多了查不出是哪来的。
+  const [syncAsk, setSyncAsk] = useState<{ open: boolean; by: string }>({ open: false, by: '' });
+  function startSync(by: string) { setSyncAsk({ open: true, by: by }); }
+  async function confirmSync() {
+    const by = syncAsk.by;
+    setSyncAsk({ open: false, by: '' });
     try { await runSync(2000, by); } catch (e) {}
   }
 
@@ -516,6 +521,9 @@ export default function App() {
         <div onClick={() => setRightOpen(false)}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 55 }} />
       )}
+      <SyncConfirm open={syncAsk.open} by={syncAsk.by}
+        onCancel={() => setSyncAsk({ open: false, by: '' })}
+        onConfirm={confirmSync} />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
     </div>
   );
