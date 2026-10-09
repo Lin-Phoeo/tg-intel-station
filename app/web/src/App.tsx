@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Zap, Radio, Star, Sparkles, Link2, Bell, Search, X, Settings, FileText,
-  Sun, Moon, Type, PanelRightClose, RefreshCw, SlidersHorizontal, BookmarkPlus, Bookmark,
+  Sun, Moon, Type, PanelRightClose, RefreshCw, SlidersHorizontal, BookmarkPlus, Bookmark, FileDown,
 } from 'lucide-react';
 import {
   search as searchApi, facets as facetsApi, getPost, related as relApi, getSettings, getClusterMembers,
@@ -164,6 +164,60 @@ export default function App() {
     setSemantic(!!p.semantic);
     setView('feed');
   }
+  // 把当前筛选条件下的结果导出成 Markdown。
+  // 之前在应用里翻到好东西却拿不出去，只能截图或者一条条复制。
+  const [exporting, setExporting] = useState(false);
+  async function doExport() {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const LIMIT = 300;
+      const collected: Post[] = [];
+      for (let p = 1; p <= Math.ceil(LIMIT / 100) && collected.length < LIMIT; p++) {
+        const r = await searchApi(Object.assign({}, filters, { page: p, size: 100 }));
+        const items = r.items || [];
+        collected.push(...items);
+        if (items.length < 100) break;
+      }
+      const rows = collected.slice(0, LIMIT);
+      if (!rows.length) { alert('当前条件下没有结果'); setExporting(false); return; }
+      const cond = [];
+      if (cat) cond.push('分类：' + cat);
+      if (channel) cond.push('频道：@' + channel);
+      if (tags.length) cond.push('标签：' + tags.join('、'));
+      if (dq.trim()) cond.push('关键词：' + dq.trim());
+      if (days) cond.push('时间：近 ' + days + ' 天');
+      const lines = [
+        '# 电报情报站 · 导出结果',
+        '',
+        '导出时间：' + new Date().toLocaleString('zh-CN'),
+        '筛选条件：' + (cond.length ? cond.join('　') : '（无，全部）'),
+        '条目数：' + rows.length,
+        '',
+        '---',
+        '',
+      ];
+      rows.forEach((p, i) => {
+        const title = String(p.text || '').split('\n')[0].slice(0, 120);
+        lines.push('## ' + (i + 1) + '. ' + title);
+        lines.push('');
+        lines.push('- 分类：' + p.category + '　价值分：' + Number(p.value).toFixed(1) + '　来源：@' + p.channel + '　日期：' + p.date);
+        if (p.links && p.links[0]) lines.push('- 链接：' + p.links[0]);
+        if (p.tags && p.tags.length) lines.push('- 标签：' + p.tags.join('、'));
+        lines.push('');
+        const body = String(p.text || '').split('\n').slice(1).join('\n').trim();
+        if (body) { lines.push(body.slice(0, 1500)); lines.push(''); }
+      });
+      const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = '情报导出-' + new Date().toISOString().slice(0, 10) + '.md';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) { alert('导出失败：' + String(e && e.message || e)); }
+    setExporting(false);
+  }
+
   async function dropSearch(e: any, id: number) {
     e.stopPropagation();
     const r = await removeSearch(id);
@@ -500,6 +554,11 @@ export default function App() {
               )}
               {semanticNote && <span style={{ fontSize: 12, color: 'var(--violet)', marginLeft: 10 }}>{semanticNote}</span>}
             </span>
+            <button className="btn ghost" style={{ padding: '2px 9px', fontSize: 'var(--fs-meta)' }}
+              onClick={doExport} disabled={exporting}
+              title="把当前筛选条件下的结果导出成 Markdown（最多 300 条）">
+              <FileDown size={12} strokeWidth={1.75} />{exporting ? '导出中…' : '导出'}
+            </button>
             {(cat || channel || tags.length > 0 || dq) && (
               <span style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                 {cat && <span className="chip on" onClick={() => setCat('')}>{cat}<X size={11} strokeWidth={2.5} /></span>}
