@@ -15,7 +15,7 @@ import * as semantic from '../app/server/semantic.mjs';
 
 // 基线：macOS/Windows 上跑出的历史值。低于它说明检索退化了。
 // 23 条评测集上的实测值。低于它说明检索退化了。
-const BASELINE = { hit10: 0.74, mrr: 0.65 };
+const BASELINE = { hit10: 0.83, mrr: 0.65 };
 
 const CASES = [
   // ── 改述类：查询刻意不含帖子里的原词，考验「换种说法也能找到」 ──
@@ -93,13 +93,21 @@ function report(s) {
   }
   const hyb = run('混合 RRF', (c) => hybIds[c.q] || []);
 
+  // 「当前」= 线上真正跑的那条路（重排默认关，见 rag.mjs 的说明）
   const fullIds = {};
   for (const c of CASES) {
     fullIds[c.q] = (await rag.retrieve(c.q, {}, 10)).map(p => p.id);
   }
-  const full = run('混合 + 重排（当前）', (c) => fullIds[c.q] || []);
+  const full = run('线上实际（关键词+向量 RRF）', (c) => fullIds[c.q] || []);
 
-  report(kw); report(hyb); report(full);
+  // 附带看一眼重排开启时的表现 —— 用来确认「关掉重排」这个决定仍然成立
+  const rrIds = {};
+  for (const c of CASES) {
+    rrIds[c.q] = (await rag.retrieve(c.q, {}, 10, { rerank: true })).map(p => p.id);
+  }
+  const rr = run('（对照）开启重排', (c) => rrIds[c.q] || []);
+
+  report(kw); report(hyb); report(full); report(rr);
 
   const pass = full.hit / CASES.length >= BASELINE.hit10 - 0.01 && full.mrr >= BASELINE.mrr - 0.02;
   say('基线 Hit@10 ' + (BASELINE.hit10 * 100).toFixed(0) + '% / MRR ' + BASELINE.mrr.toFixed(2)

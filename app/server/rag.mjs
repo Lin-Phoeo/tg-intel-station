@@ -177,9 +177,20 @@ export async function retrieve(question, filters, topK, opts) {
 
   let ids = fused.slice(0, want).map(x => x.id);
 
-  // 有重排器就精排。多取一些候选（RERANK_N）让靠后的正解有机会被提上来，
-  // 但最终只保留 want 条。
-  if (!opts || opts.rerank !== false) {
+  // 重排默认**关闭**，这是测出来的结论，不是偷懒。
+  //
+  // 换成 Qwen3-Embedding-8B 之后，在 23 条评测集上比过四个重排器：
+  //     不重排                Hit@10 19/23   MRR 0.656
+  //     bge-reranker-v2-m3    19/23          0.656   92ms
+  //     Qwen3-Reranker-8B     19/23          0.657   2595ms
+  //     Qwen3-Reranker-4B     19/23          0.500   687ms
+  //     Qwen3-Reranker-0.6B   19/23          0.573   385ms
+  // 没有一个能提升命中率，三个反而拉低 MRR。
+  // （用 bge-small 时重排还有 +6pt，说明**召回够强时重排的边际价值趋近于零**。）
+  // 既然不带来质量收益，就没理由再付 450ms 延迟和一次外部依赖的可靠性风险。
+  //
+  // 需要时仍可显式打开：retrieve(q, f, k, { rerank: true })。
+  if (opts && opts.rerank === true) {
     const pool = fused.slice(0, Math.max(RERANK_N, want)).map(x => x.id);
     const rr = await rerankIds(question, pool);
     if (rr && rr.length) ids = rr.slice(0, want);
