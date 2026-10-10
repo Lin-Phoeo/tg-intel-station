@@ -140,22 +140,27 @@ export function ChatPanel({ filters, pendingPost, onConsumePending, onOpenPost }
               </div>
             ) : (
               <div>
-                {m.sources && m.sources.length > 0 && (
-                  <div style={{ marginBottom: 10 }}>
-                    <div style={{ fontSize: 12, color: 'var(--fg-mute)', marginBottom: 6 }}>{'检索到 ' + m.sources.length + ' 条相关资料'}</div>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      {m.sources.map((s, n) => (
-                        <button key={s.id} className="chip" onClick={() => onOpenPost(s.id)} title={s.text} style={{ maxWidth: 220 }}>
-                          <span style={{ color: catColor(s.category), fontWeight: 700 }}>{n + 1}</span>
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.text.slice(0, 20)}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
                 {m.content
                   ? <div style={{ fontSize: 14, color: m.error ? 'var(--rose)' : 'var(--fg)', lineHeight: 1.8 }}><Markdown text={m.content} onCite={(n) => { const s = m.sources && m.sources[n - 1]; if (s) onOpenPost(s.id); }} /></div>
                   : (busy && i === msgs.length - 1 ? <div style={{ color: 'var(--fg-mute)', fontSize: 13.5 }}><span className="cursor-blink">▍</span> {stage || '思考中…'}</div> : null)}
+                {m.sources && m.sources.length > 0 && (
+                  <>
+                    <div style={{ fontSize: 12, color: 'var(--fg-mute)', marginTop: 14 }}>{'来源 · ' + m.sources.length + ' 条'}</div>
+                    <div className="src-cards">
+                      {m.sources.map((s, n) => (
+                        <button key={s.id} className="src-card" onClick={() => onOpenPost(s.id)} title={s.text}>
+                          <div className="src-card-head">
+                            <span className="src-card-num">{n + 1}</span>
+                            <span className="row-dot" style={{ background: catColor(s.category) }} />
+                            <span className="src-card-chan">{'@' + s.channel}</span>
+                          </div>
+                          <div className="src-card-text">{s.text}</div>
+                          <div className="src-card-meta">{(s.date || '') + (s.value ? ' · ' + Math.round(s.value) + ' 分' : '')}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>
