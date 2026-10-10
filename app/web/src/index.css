@@ -29,6 +29,10 @@
   --accent:      #5e6ad2;
   --accent-fg:   #ffffff;
   --accent-soft: rgba(94, 106, 210, .18);
+  --accent-hi:   #828fff;   /* hover / 小字强调：#5e6ad2 做小字对比偏低，强调态用更亮的 */
+
+  /* ---- 等宽数字栈：分数 / 时间 / 计数 / ID 专用，tabular-nums 纵向对齐 ---- */
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
 
   /* ---- 功能色：只在真正需要区分状态时出现 ---- */
   --green: #3fb950;
@@ -311,10 +315,13 @@ body {
 .row:last-child { border-bottom: none; }
 .row:hover { background: var(--bg-2); }
 .row.active { background: var(--bg-3); }
+/* Linear 式左侧强调指示条：当前选中行一眼可辨，不靠整行变色 */
+.row.active::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--accent); }
 .row-dot { width: 6px; height: 6px; border-radius: 3px; flex-shrink: 0; }
 .row-meta {
   display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
   font-size: var(--fs-meta); color: var(--fg-mute); margin-bottom: 4px;
+  font-variant-numeric: tabular-nums;
 }
 .row-star { position: absolute; right: 12px; top: 10px; color: var(--fg-mute); }
 .row-meta .mtag {
@@ -325,10 +332,10 @@ body {
 .row-meta .mtag.risk { background: color-mix(in srgb, var(--rose) 15%, transparent); color: var(--rose); }
 .row-title {
   font-size: var(--fs-text); font-weight: 600; line-height: 1.5;
-  color: var(--fg); margin-bottom: 3px;
+  color: var(--fg); margin-bottom: 3px; max-width: 82ch;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
-.row-body { font-size: var(--fs-meta); line-height: 1.62; color: var(--fg-dim); }
+.row-body { font-size: var(--fs-meta); line-height: 1.62; color: var(--fg-dim); max-width: 82ch; }
 .row-link { color: var(--fg-mute); text-decoration: none; transition: color .13s; }
 .row-link:hover { color: var(--accent); }
 /* 窄窗口：次要信息逐级隐藏，保证主信息不被挤压 */
@@ -386,6 +393,13 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 1
 
 .divider { height: 1px; background: var(--border-soft); }
 
+/* 数字一律走等宽 + tabular-nums：分数/计数/时间纵向对齐，工具感 */
+.chip .cn, .hl-val, .tpp-pct, .tpp-sub, .sync-info .v, .mstat, .tpp-grid .v {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+}
+
+/* 问答答案限制阅读宽度：45~75 字符最易读，全宽长行伤眼 */
+.md { max-width: 72ch; }
 .md p { margin: 0 0 .7em; }
 .md ul, .md ol { margin: .3em 0 .8em; padding-left: 1.35em; }
 .md li { margin: .18em 0; }
@@ -400,3 +414,15 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 1
 @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @keyframes blink { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
 .cursor-blink { animation: blink 1s steps(1) infinite; }
+
+/* ---------- 骨架屏：加载时保留布局、感知更快，避免跳动 ---------- */
+.skel { background: var(--bg-3); border-radius: var(--r-sm); }
+.skel-wrap { animation: skelpulse 1.5s ease-in-out infinite; }
+@keyframes skelpulse { 0%,100% { opacity: .45 } 50% { opacity: .9 } }
+.skel-row { padding: 10px 16px; border-bottom: 1px solid var(--border-soft); display: flex; flex-direction: column; gap: 8px; }
+.skel-line { height: 9px; }
+
+/* ---------- 空状态：居中图标 + 说明 + 下一步动作，不留死胡同 ---------- */
+.empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 76px 20px 40px; text-align: center; }
+.empty-icon { color: var(--fg-mute); opacity: .55; }
+.empty-title { font-size: var(--fs-text); color: var(--fg-dim); max-width: 42ch; line-height: 1.6; }

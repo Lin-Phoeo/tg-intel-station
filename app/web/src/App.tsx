@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Zap, Radio, Star, Sparkles, Link2, Bell, Search, X, Settings, FileText,
   Sun, Moon, Type, PanelRightClose, RefreshCw, SlidersHorizontal, BookmarkPlus, Bookmark, FileDown,
+  SearchX,
 } from 'lucide-react';
 import {
   search as searchApi, facets as facetsApi, getPost, related as relApi, getSettings, getClusterMembers,
@@ -630,7 +631,10 @@ export default function App() {
         <div ref={scrollRef} onScroll={e => { scrollPos.current[view] = (e.target as HTMLElement).scrollTop; }}
           style={{ flex: 1, overflowY: 'auto', padding: '0 0 56px' }}>
           {view === 'favs' && favPosts.length === 0 && (
-            <div style={{ textAlign: 'center', color: 'var(--fg-mute)', paddingTop: 80, fontSize: 'var(--fs-text)' }}>还没有收藏。点击任意条目右侧的星标即可收藏。</div>
+            <div className="empty">
+              <Star size={40} strokeWidth={1.5} className="empty-icon" />
+              <div className="empty-title">还没有收藏。点击任意条目右侧的星标即可收藏，稍后在这里集中查看。</div>
+            </div>
           )}
           <div style={{ maxWidth: 1020, margin: '0 auto' }}>
             {shown.map((p, i) => (
@@ -639,8 +643,27 @@ export default function App() {
             </div>
           ))}
           </div>
-          {view === 'feed' && loading && page === 1 && <div style={{ textAlign: 'center', color: 'var(--fg-mute)', padding: 48, fontSize: 'var(--fs-text)' }}>正在检索…</div>}
-          {view === 'feed' && !loading && items.length === 0 && <div style={{ textAlign: 'center', color: 'var(--fg-mute)', padding: 70, fontSize: 'var(--fs-text)' }}>没有匹配的结果，试试换个关键词或清空筛选。</div>}
+          {view === 'feed' && loading && page === 1 && (
+            <div className="skel-wrap" style={{ maxWidth: 1020, margin: '0 auto' }}>
+              {Array.from({ length: 7 }).map((_, i) => (
+                <div key={i} className="skel-row">
+                  <div className="skel skel-line" style={{ width: 180 }} />
+                  <div className="skel skel-line" style={{ width: '68%', height: 12 }} />
+                  <div className="skel skel-line" style={{ width: '92%' }} />
+                </div>
+              ))}
+            </div>
+          )}
+          {view === 'feed' && !loading && items.length === 0 && (
+            <div className="empty">
+              <SearchX size={40} strokeWidth={1.5} className="empty-icon" />
+              <div className="empty-title">没有匹配的结果。试试换个说法、放宽筛选，或直接问 AI 助手。</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn" onClick={() => { setCat(''); setChannel(''); setTags([]); setQ(''); }}>清空筛选</button>
+                <button className="btn primary" onClick={() => { setPanel('chat'); setRightOpen(true); }}>问 AI 助手</button>
+              </div>
+            </div>
+          )}
           {view === 'feed' && items.length > 0 && items.length < total && (
             <div ref={sentinelRef} style={{ textAlign: 'center', padding: 24 }}>
               <button className="btn" onClick={() => load(page + 1)} disabled={loading}>{loading ? '加载中…' : '加载更多'}</button>
