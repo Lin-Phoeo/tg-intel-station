@@ -437,7 +437,7 @@ async function api(req, res, pathname, query) {
     const body = await readBody(req);
     const clean = {};
     for (const k of Object.keys(body || {})) if (body[k] !== undefined && body[k] !== null && body[k] !== '') clean[k] = body[k];
-    const d = bot.buildDigest(clean);
+    const d = await bot.buildDigest(clean);
     return send(res, 200, { ok: true, html: d.html, count: d.count });
   }
 

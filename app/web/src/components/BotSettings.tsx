@@ -6,6 +6,7 @@ type Cfg = {
   autoPush: boolean; pushHour: number; pushMinValue: number; pushTags: string[]; pushLimit: number;
   windowDays: number; allowAsk: boolean; lastPushDate: string; pushedCount: number;
   ingestGroups: boolean; ingestedCount: number; lastIngest: any;
+  aiDigest: boolean; digestProfile: string;
 };
 const TAGS = ['免费', '限时', '开源', '教程', '节点', '账号', '需注册', '破解'];
 
@@ -17,22 +18,25 @@ export function BotSettings() {
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err' | 'info'; text: string } | null>(null);
   const [preview, setPreview] = useState<{ html: string; count: number } | null>(null);
   const timer = useRef<any>(null);
+  // 用户一旦改动表单就置脏，脏状态下 8 秒轮询不再覆盖 cfg（否则未保存的编辑会被冲掉）。
+  const dirty = useRef(false);
 
   async function refresh() {
     const r = await getBot();
     setCfg(r.config);
     setStatus(r.status || {});
+    dirty.current = false;
   }
   useEffect(() => {
     refresh();
     timer.current = setInterval(async () => {
-      try { const r = await getBotStatus(); setStatus(r.status || {}); setCfg(r.config); } catch (e) {}
+      try { const r = await getBotStatus(); setStatus(r.status || {}); if (!dirty.current) setCfg(r.config); } catch (e) {}
     }, 8000);
     return () => clearInterval(timer.current);
   }, []);
 
   if (!cfg) return <div style={{ padding: 20, color: 'var(--fg-mute)' }}>加载中…</div>;
-  const upd = (k: keyof Cfg, v: any) => setCfg(c => (c ? { ...c, [k]: v } : c));
+  const upd = (k: keyof Cfg, v: any) => { dirty.current = true; setCfg(c => (c ? { ...c, [k]: v } : c)); };
 
   async function doSave(restart: boolean) {
     setBusy(true);
@@ -40,11 +44,12 @@ export function BotSettings() {
       enabled: cfg.enabled, pushChatId: cfg.pushChatId, allowedChatIds: cfg.allowedChatIds,
       autoPush: cfg.autoPush, pushHour: Number(cfg.pushHour), pushMinValue: Number(cfg.pushMinValue),
       pushTags: cfg.pushTags, pushLimit: Number(cfg.pushLimit), windowDays: Number(cfg.windowDays),
-      allowAsk: cfg.allowAsk, ingestGroups: cfg.ingestGroups, restart: restart,
+      allowAsk: cfg.allowAsk, ingestGroups: cfg.ingestGroups, aiDigest: cfg.aiDigest, restart: restart,
     };
     if (token.trim()) payload.token = token.trim();
     const r = await saveBot(payload);
     setCfg(r.config); setStatus(r.status || {});
+    dirty.current = false;
     setToken(''); setBusy(false);
     setMsg({ kind: 'ok', text: restart ? '已保存并重启机器人' : '已保存' });
   }
@@ -168,6 +173,10 @@ export function BotSettings() {
           <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13.5 }}>
             <input type="checkbox" checked={cfg.allowAsk} onChange={e => upd('allowAsk', e.target.checked)} style={{ width: 'auto', margin: 0 }} />
             允许群内 /ask 提问（消耗 AI 额度）
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13.5 }}>
+            <input type="checkbox" checked={cfg.aiDigest} onChange={e => upd('aiDigest', e.target.checked)} style={{ width: 'auto', margin: 0 }} />
+            AI 导读（日报开头加一段模型点评，消耗 AI 额度）
           </label>
         </div>
         <div style={{ fontSize: 12, color: 'var(--fg-mute)', marginTop: 10 }}>

@@ -24,6 +24,8 @@ const DEFAULTS = {
   windowDays: 4,
   allowAsk: true,
   ingestGroups: false,
+  aiDigest: false,       // 日报是否生成 AI 导读
+  digestProfile: '',     // 导读用的服务商 id，空则用当前活动服务商
   pushedIds: [],
   lastPushDate: '',
 };
@@ -51,6 +53,7 @@ export function publicConfig() {
     autoPush: c.autoPush, pushHour: c.pushHour, pushMinValue: c.pushMinValue,
     pushTags: c.pushTags, pushLimit: c.pushLimit, windowDays: c.windowDays,
     allowAsk: c.allowAsk, lastPushDate: c.lastPushDate,
+    aiDigest: c.aiDigest, digestProfile: c.digestProfile,
     pushedCount: (c.pushedIds || []).length,
     ingestGroups: c.ingestGroups,
     ingestedCount: (status.ingested || 0),
@@ -153,7 +156,22 @@ export async function sendMessage(chatId, html, opts) {
 }
 
 // ---------------- 日报 ----------------
-export function buildDigest(opts) {
+// 可选的 AI 导读：把今天入选的条目交给模型，生成一段精炼开场点评。
+// 失败就返回空串，日报退回纯列表 —— 导读是锦上添花，不该因它挂了就发不出日报。
+async function digestSummary(items, o) {
+  try {
+    const list = items.map((it, i) =>
+      (i + 1) + '. [' + it.category + '·' + it.value + '分] ' +
+      String(it.text || '').replace(/\s+/g, ' ').trim().slice(0, 120)).join('\n');
+    const ans = await ai.completeLLM([
+      { role: 'system', content: '你是情报日报编辑。根据今天入选的条目，写一段 2-3 句的中文导读：点出今天最值得关注的 2-3 条及其价值，可按主题归类。只输出导读正文，不要寒暄、不要逐条罗列、不要编造条目里没有的信息。' },
+      { role: 'user', content: '今天入选 ' + items.length + ' 条：\n' + list },
+    ], o.digestProfile || undefined);
+    return String(ans || '').replace(/\s+/g, ' ').trim().slice(0, 600);
+  } catch (e) { return ''; }
+}
+
+export async function buildDigest(opts) {
   const cfg = loadConfig();
   const o = Object.assign({}, cfg, opts || {});
   const from = new Date(Date.now() - (o.windowDays || 4) * 86400000).toISOString().slice(0, 10);
@@ -169,6 +187,12 @@ export function buildDigest(opts) {
     lines.push('今天没有新的高分羊毛/工具条目。可以放宽筛选条件，或先跑一次抓取。');
     return { html: lines.join('\n'), items: [], count: 0 };
   }
+
+  if (o.aiDigest && ai.hasKey()) {
+    const intro = await digestSummary(items, o);
+    if (intro) { lines.push(''); lines.push('📝 ' + esc(intro)); }
+  }
+
   lines.push('精选 <b>' + items.length + '</b> 条 · 标签 ' + (o.pushTags || []).join('/') + ' · 分数 ≥ ' + o.pushMinValue);
   items.forEach((it, i) => {
     const link = (it.links && it.links[0]) || (it.lp && it.lp[0] && it.lp[0].u) || '';
@@ -192,7 +216,7 @@ export async function pushDigest(chatId, opts) {
   const cfg = loadConfig();
   const target = chatId || cfg.pushChatId;
   if (!target) throw new Error('未设置推送目标群/频道');
-  const d = buildDigest(opts);
+  const d = await buildDigest(opts);
   await sendMessage(target, d.html);
   if (d.items.length) {
     const ids = (cfg.pushedIds || []).concat(d.items.map(x => x.id));
