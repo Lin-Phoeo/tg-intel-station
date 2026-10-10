@@ -56,8 +56,10 @@ async function judge(query, posts) {
   ]);
   const scores = [];
   for (const raw of String(ans || '').split('\n')) {
-    const m = raw.trim().match(/^(\d+)\s*[|｜]\s*([012])/);
-    if (m) scores[Number(m[1]) - 1] = Number(m[2]);
+    // 模型偶尔输出小数（1|1.0）或带全角竖线，这里都容忍。
+    // 原先只认 [012] 单字符，会把「1.0」误读成 1 —— 碰巧对了，但不该靠运气。
+    const m = raw.trim().match(/^(\d+)\s*[|｜]\s*([0-2](?:\.\d+)?)/);
+    if (m) scores[Number(m[1]) - 1] = Math.round(Number(m[2]));
   }
   return scores;
 }
