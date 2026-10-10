@@ -903,7 +903,9 @@ export async function rerank(query, documents, cfg) {
               method: 'POST',
               headers: headers,
               body: JSON.stringify({ model: model, query: String(query).slice(0, 2000), documents: ch.docs, top_n: ch.docs.length }),
-              signal: AbortSignal.timeout(60000),
+              // 重排是「锦上添花」的一段，不能让它拖垮整个检索。
+              // 健康的 rerank 不到 1 秒；60 秒 × 3 次重试 = 单次查询最坏卡 3 分钟。
+              signal: AbortSignal.timeout(8000),
             });
             if (!res.ok) {
               const body = await res.text().catch(() => '');

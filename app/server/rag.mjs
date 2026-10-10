@@ -128,10 +128,26 @@ async function vectorRank(question, filters, limit) {
 // 太多则重排请求变大、变慢（Gitee 单次上限 25 条，内部会分批）。
 const RERANK_N = 30;
 
+// 重排阶段的硬性预算。超时就直接用融合顺序。
+// 检索必须保证「有界延迟」—— 一个可选阶段的抖动不该让用户干等。
+// 实测正常重排约 450ms，3.5 秒留足余量，又能在对方抽风时及时止损。
+const RERANK_BUDGET_MS = 3500;
+
 // 用 cross-encoder 对候选精排。失败就返回 null，调用方退回融合顺序 ——
 // 重排是「锦上添花」，不该因为它挂了就让整个问答不可用。
+//
+// 关键是外面那层 Promise.race：不是「等它失败」，而是「到点就走」。
+// 之前重排单次超时 60 秒、重试 2 次，加上分批并发，
+// 一次查询最坏能卡 3 分钟 —— 实测确实把整条链路挂住过。
 async function rerankIds(question, ids) {
   if (!ids.length) return null;
+  return await Promise.race([
+    rerankOnce(question, ids),
+    new Promise((resolve) => setTimeout(() => resolve(null), RERANK_BUDGET_MS)),
+  ]);
+}
+
+async function rerankOnce(question, ids) {
   try {
     const posts = store.getPostsByIds(ids);
     const byId = {};

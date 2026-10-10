@@ -12,6 +12,8 @@
     "dev:web": "npm --prefix app/web run dev",
     "build:web": "npm --prefix app/web run build",
     "test": "node --test core/*.test.mjs test/*.test.mjs",
+    "eval:rag": "node eval/rag-eval.mjs",
+    "eval:rag:strict": "node eval/rag-eval.mjs --strict",
     "index:build": "node app/server/build-db.mjs",
     "fetch": "node scrape/scrape.mjs",
     "report": "node scrape/report.mjs",

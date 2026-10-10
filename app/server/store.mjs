@@ -559,7 +559,11 @@ export function search(opts) {
     const sql = 'SELECT ' + SELECT_COLS + ', ' + bm25Expr() + ' AS rank FROM posts_fts f CROSS JOIN posts p ON p.id = f.rowid WHERE posts_fts MATCH ?' + w + ' ORDER BY ' + orderSql + ' LIMIT ? OFFSET ?';
     try {
       rows = d.prepare(sql).all(expr, ...params, size, offset);
-      total = cachedCount(expr + '|' + where.join('|') + '|' + params.join(','), () => {
+      // 结果没填满一页，说明总数就等于返回条数 —— 不必再跑一次 COUNT。
+      // 检索编排里会对十几个片段各查一次库，这些片段大多是窄查询（填不满页），
+      // 省掉的正是它们。
+      if (rows.length < size) total = rows.length;
+      else total = cachedCount(expr + '|' + where.join('|') + '|' + params.join(','), () => {
         const c = d.prepare('SELECT COUNT(*) AS n FROM posts_fts f CROSS JOIN posts p ON p.id = f.rowid WHERE posts_fts MATCH ?' + w).get(expr, ...params);
         return c ? c.n : 0;
       });
