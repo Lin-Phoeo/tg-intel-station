@@ -17,11 +17,22 @@ import * as semantic from '../app/server/semantic.mjs';
 // 想做全量就自己把 CASES 补回去，或者换一个快模型当裁判。
 const CASES = [
   { q: '有没有能免费看小说的阅读应用', type: '改述' },
+  { q: '怎么搜索 BT 种子和磁力链接', type: '改述' },
+  { q: '想把字幕直接烧进视频里的工具', type: '改述' },
   { q: '远程控制另一台电脑的开源方案', type: '改述' },
   { q: '能不能把 B 站当音乐播放器用', type: '改述' },
+  { q: '开发者白嫖 AI 资源的清单', type: '改述' },
   { q: '绕过系统检测的录屏软件', type: '改述' },
+  { q: '把开源仓库变成 AI 能直接调用的技能', type: '改述' },
+  { q: 'AnycastIP 保加利亚 新节点', type: '生僻词' },
+  { q: 'OpenClaw Windows Hub', type: '生僻词' },
+  { q: 'Formance Stack 是什么', type: '生僻词' },
+  { q: 'TritonParse 内核编译分析', type: '生僻词' },
   { q: 'Pika Labs 免费无限生成视频怎么弄', type: '混合' },
+  { q: 'Qoder Flash 免费额度延长了吗', type: '混合' },
+  { q: '阿里云轻量带宽 200mbps 是真的吗', type: '混合' },
   { q: '本周 Epic 限免有哪几个游戏', type: '混合' },
+  { q: 'HookVip 能解锁哪些会员', type: '混合' },
 ];
 
 // 让模型逐条打分。用固定格式输出，避免 JSON 解析失败。

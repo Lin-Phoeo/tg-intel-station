@@ -14,6 +14,7 @@
     "test": "node --test core/*.test.mjs test/*.test.mjs",
     "eval:rag": "node eval/rag-eval.mjs",
     "eval:rag:strict": "node eval/rag-eval.mjs --strict",
+    "eval:judge": "node eval/rag-judge.mjs",
     "index:build": "node app/server/build-db.mjs",
     "fetch": "node scrape/scrape.mjs",
     "report": "node scrape/report.mjs",
