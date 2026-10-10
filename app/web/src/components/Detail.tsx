@@ -46,9 +46,6 @@ export function Detail({ post, rel, relBy, cluster, fav, favTags, onFav, onSetTa
         </div>
       )}
 
-      <div style={{ display: 'none' }}>
-      </div>
-
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
         <button className="btn" onClick={() => window.open(post.url, '_blank')}>打开 Telegram 原文 ↗</button>
         <button className="btn" onClick={() => navigator.clipboard.writeText(post.text)}>复制正文</button>
@@ -75,7 +72,7 @@ export function Detail({ post, rel, relBy, cluster, fav, favTags, onFav, onSetTa
       )}
 
       <div className="divider" style={{ margin: '22px 0 14px' }} />
-      <div style={{ display: 'flex', gap: 18, fontSize: 12.5, color: 'var(--fg-mute)', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 18, fontSize: 12.5, color: 'var(--fg-mute)', flexWrap: 'wrap', fontVariantNumeric: 'tabular-nums' }}>
         <span>来源 <a className="link" href={'https://t.me/' + post.channel} target="_blank" rel="noreferrer">{'@' + post.channel}</a></span>
         <span>阅读 {fmtNum(post.views)}</span>
         <span>价值分 {post.value}</span>
@@ -92,7 +89,7 @@ export function Detail({ post, rel, relBy, cluster, fav, favTags, onFav, onSetTa
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {cluster.filter(c => c.id !== post.id).map(c => (
               <div key={c.id} className="card" style={{ padding: '10px 13px', cursor: 'pointer' }} onClick={() => onOpen(c)}>
-                <div style={{ fontSize: 12, color: 'var(--fg-mute)', marginBottom: 3 }}>{c.date + ' · @' + c.channel + ' · ' + c.category + ' · ' + c.value + ' 分'}</div>
+                <div style={{ fontSize: 12, color: 'var(--fg-mute)', marginBottom: 3, fontVariantNumeric: 'tabular-nums' }}>{c.date + ' · @' + c.channel + ' · ' + c.category + ' · ' + c.value + ' 分'}</div>
                 <div className="clamp-2" style={{ fontSize: 13.5, color: 'var(--fg-dim)' }}>{c.text}</div>
               </div>
             ))}
@@ -116,7 +113,7 @@ export function Detail({ post, rel, relBy, cluster, fav, favTags, onFav, onSetTa
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {rel.map(r => (
               <div key={r.id} className="card" style={{ padding: '10px 13px', cursor: 'pointer' }} onClick={() => onOpen(r)}>
-                <div style={{ fontSize: 12, color: 'var(--fg-mute)', marginBottom: 3 }}>{r.date + ' · @' + r.channel + ' · ' + r.category}</div>
+                <div style={{ fontSize: 12, color: 'var(--fg-mute)', marginBottom: 3, fontVariantNumeric: 'tabular-nums' }}>{r.date + ' · @' + r.channel + ' · ' + r.category}</div>
                 <div className="clamp-2" style={{ fontSize: 13.5, color: 'var(--fg-dim)' }}>{r.text}</div>
               </div>
             ))}
