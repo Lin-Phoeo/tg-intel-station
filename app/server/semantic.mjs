@@ -43,8 +43,16 @@ let vecCache = null;   // { at, items }
 
 export function getStatus() {
   const elapsed = state.startedAt ? Math.round((Date.now() - state.startedAt) / 1000) : 0;
+  const stats = store.embedStats();
+  // model/dim 只在构建期间写进内存状态，服务一重启就没了 ——
+  // 于是重建完成后界面会显示成「模型 (空) · 维度 0」，像是索引坏了。
+  // 内存里没有就回落到库里已存的实际值。
+  const model = state.model || stats.model || '';
+  const dim = state.dim || stats.dim || 0;
   return Object.assign({}, state, {
-    stats: store.embedStats(),
+    model: model,
+    dim: dim,
+    stats: stats,
     cached: vecCache ? vecCache.items.length : 0,
     stages: STAGES,
     elapsed: elapsed,
