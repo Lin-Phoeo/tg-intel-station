@@ -13,9 +13,10 @@ import * as ai from '../app/server/ai.mjs';
 import * as rag from '../app/server/rag.mjs';
 import * as semantic from '../app/server/semantic.mjs';
 
-// 基线：macOS/Windows 上跑出的历史值。低于它说明检索退化了。
-// 23 条评测集上的实测值。低于它说明检索退化了。
-const BASELINE = { hit10: 0.83, mrr: 0.65 };
+// 基线：23 条评测集上的实测值。低于它说明检索退化了。
+// 2026-10-10 校准：修正第 7 条标错的 ground-truth 后，由 0.83/0.656 升到 0.87/0.699。
+// 2026-10-10 时效衰减门控上线后，Epic「本周限免」进 top-10，升到 0.91/0.704。
+const BASELINE = { hit10: 0.91, mrr: 0.704 };
 
 const CASES = [
   // ── 改述类：查询刻意不含帖子里的原词，考验「换种说法也能找到」 ──
@@ -25,7 +26,7 @@ const CASES = [
   { q: '远程控制另一台电脑的开源方案', expect: 145272, type: '改述' },
   { q: '能不能把 B 站当音乐播放器用', expect: 861014, type: '改述' },
   { q: '开发者白嫖 AI 资源的清单', expect: 26915, type: '改述' },
-  { q: '绕过系统检测的录屏软件', expect: 870481, type: '改述' },
+  { q: '绕过系统检测的录屏软件', expect: 861825, type: '改述' }, // 原标 870481 是无关帖(swift container)，真目标是 Himi Recorder(可绕过系统录屏检测)
   { q: '把开源仓库变成 AI 能直接调用的技能', expect: 29003, type: '改述' },
 
   // ── 生僻词类：查询带专名或编号，考验精确匹配 ──

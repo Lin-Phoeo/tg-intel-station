@@ -18,6 +18,29 @@ import * as semantic from './semantic.mjs';
 // RRF 的经典常数（Cormack 2009）。论文与各家实现都用 60。
 const RRF_K = 60;
 
+// 时效型查询（含「本周 / 最新」等意图）才启用日期衰减。
+// 门控是关键：全局套衰减会打烂普通查询（旧但正解的帖会被压掉）。
+// 只有查询本身在问「最近 / 本周」时，才让新鲜度参与排序。
+const TEMPORAL_RE = /本周|这周|本月|这个月|今天|今日|昨天|最新|最近|近期|近日|这几天|当下|当前|现在|实时/;
+// 半衰期（天）：情报/限免帖时效性强，取两周量级。age=h 时权重减半。
+const RECENCY_HALF_LIFE_DAYS = 10;
+// 时效查询扩大召回池：正解可能语义分不高、靠「最新」才该顶上来，
+// 普通 FANOUT(40) 根本捞不到它（实测 Epic 本周帖在向量第 130 名）。
+const TEMPORAL_FANOUT = 240;
+
+function isTemporalQuery(q) {
+  return TEMPORAL_RE.test(String(q || ''));
+}
+
+// 指数半衰期衰减：final = sc × 2^(-age/h)。未来时间戳取中性 1.0。
+function recencyDecay(dateStr, now) {
+  if (!dateStr) return 1;
+  const t = Date.parse(String(dateStr) + 'T00:00:00');
+  if (isNaN(t)) return 1;
+  const age = Math.max(0, (now - t) / 86400000);
+  return Math.pow(2, -age / RECENCY_HALF_LIFE_DAYS);
+}
+
 // 用排名做融合。传入若干「已按相关度排好序」的列表，返回融合后的 id 顺序。
 export function rrf(lists) {
   const score = new Map();
@@ -169,11 +192,24 @@ async function rerankOnce(question, ids) {
 //              （实测再加这一段，MRR 0.547 → 0.606，命中率 63% → 69%）
 export async function retrieve(question, filters, topK, opts) {
   const want = topK || 14;
-  const FANOUT = Math.max(40, want * 3);
+  const temporal = isTemporalQuery(question);
+  const FANOUT = temporal ? TEMPORAL_FANOUT : Math.max(40, want * 3);
   const kw = keywordRank(question, filters, FANOUT);
   const vec = await vectorRank(question, filters, FANOUT);
-  const fused = rrf([kw, vec]);
+  let fused = rrf([kw, vec]);
   if (!fused.length) return [];
+
+  // 时效型查询：对融合分乘以日期衰减，让「本周/最新」的那条顶上来。
+  // 只在门控命中时启用，普通查询完全不受影响。
+  if (temporal) {
+    const postById = new Map();
+    for (const p of kw) postById.set(p.id, p);
+    for (const p of vec) if (!postById.has(p.id)) postById.set(p.id, p);
+    const now = Date.now();
+    fused = fused
+      .map(e => ({ id: e.id, sc: e.sc * recencyDecay((postById.get(e.id) || {}).date, now) }))
+      .sort((a, b) => b.sc - a.sc);
+  }
 
   let ids = fused.slice(0, want).map(x => x.id);
 
