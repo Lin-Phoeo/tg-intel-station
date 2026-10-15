@@ -43,7 +43,7 @@ let vecCache = null;   // { at, items }
 
 export function getStatus() {
   const elapsed = state.startedAt ? Math.round((Date.now() - state.startedAt) / 1000) : 0;
-  const stats = store.embedStats();
+  const stats = store.embedStats(state.minValue == null ? 4 : state.minValue);
   // model/dim 只在构建期间写进内存状态，服务一重启就没了 ——
   // 于是重建完成后界面会显示成「模型 (空) · 维度 0」，像是索引坏了。
   // 内存里没有就回落到库里已存的实际值。
@@ -105,11 +105,11 @@ export async function buildIndex(opts) {
   const maxChars = Math.max(64, Math.min(2000, Number(o.maxChars || 512)));
   const maxBatches = Number(o.maxBatches || 0);   // 0 表示不限
 
-  const stats = store.embedStats();
-  const todo = Math.max(0, stats.eligible - stats.indexed);
+  const stats = store.embedStats(minValue);
+  const todo = stats.pending;
   rateWin.length = 0;
   state = {
-    running: true, done: 0, total: todo, failed: 0,
+    running: true, done: 0, total: todo, failed: 0, minValue,
     startedAt: Date.now(), finishedAt: null, error: null,
     model: stats.model || '', dim: stats.dim || 0,
     stage: '', stageText: '', current: '', rate: 0, eta: 0, batches: 0,
@@ -194,8 +194,9 @@ export async function buildIndex(opts) {
 
 export function startBuild(opts) {
   if (state.running) return { ok: false, error: '已有向量化任务在进行中' };
-  buildIndex(opts).catch(e => { state.running = false; state.error = String(e.message || e); state.finishedAt = Date.now(); });
-  return { ok: true, started: true, stats: store.embedStats() };
+  const o = opts || {};
+  buildIndex(o).catch(e => { state.running = false; state.error = String(e.message || e); state.finishedAt = Date.now(); });
+  return { ok: true, started: true, stats: store.embedStats(o.minValue == null ? 4 : o.minValue) };
 }
 
 // 语义检索：把查询向量化，与库内向量做余弦比对。

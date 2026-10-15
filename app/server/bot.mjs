@@ -26,6 +26,7 @@ const DEFAULTS = {
   ingestGroups: false,
   aiDigest: false,       // 日报是否生成 AI 导读
   digestProfile: '',     // 导读用的服务商 id，空则用当前活动服务商
+  syncBeforeBriefing: false, // 本地日报是否自动先同步全部来源
   pushedIds: [],
   lastPushDate: '',
 };
@@ -54,6 +55,7 @@ export function publicConfig() {
     pushTags: c.pushTags, pushLimit: c.pushLimit, windowDays: c.windowDays,
     allowAsk: c.allowAsk, lastPushDate: c.lastPushDate,
     aiDigest: c.aiDigest, digestProfile: c.digestProfile,
+    syncBeforeBriefing: !!c.syncBeforeBriefing,
     pushedCount: (c.pushedIds || []).length,
     ingestGroups: c.ingestGroups,
     ingestedCount: (status.ingested || 0),
@@ -158,7 +160,7 @@ export async function sendMessage(chatId, html, opts) {
 // ---------------- 日报 ----------------
 // 可选的 AI 导读：把今天入选的条目交给模型，生成一段精炼开场点评。
 // 失败就返回空串，日报退回纯列表 —— 导读是锦上添花，不该因它挂了就发不出日报。
-async function digestSummary(items, o) {
+export async function digestSummary(items, o) {
   try {
     const list = items.map((it, i) =>
       (i + 1) + '. [' + it.category + '·' + it.value + '分] ' +
@@ -171,13 +173,27 @@ async function digestSummary(items, o) {
   } catch (e) { return ''; }
 }
 
+// 日报「选条目」逻辑独立于推送渠道；限额与 pushedIds 过滤留给调用方
+// （Telegram 路径必须保持「先过滤已推、再截断」的既有行为）。
+export function selectDigestItems(o) {
+  const opts = o || {};
+  const from = opts.from || new Date(Date.now() - (opts.windowDays || 4) * 86400000).toISOString().slice(0, 10);
+  const search = {
+    q: '', tags: opts.tags == null ? (opts.pushTags || []) : opts.tags,
+    from: from, sort: 'value', size: Math.min(Number(opts.candidateLimit) || 80, 80),
+    minValue: opts.minValue == null ? (opts.pushMinValue || 5) : Number(opts.minValue),
+    category: opts.category || '', channel: opts.channel || '',
+  };
+  if (opts.to) search.to = opts.to;
+  const r = store.search(search);
+  return r.items || [];
+}
+
 export async function buildDigest(opts) {
   const cfg = loadConfig();
   const o = Object.assign({}, cfg, opts || {});
-  const from = new Date(Date.now() - (o.windowDays || 4) * 86400000).toISOString().slice(0, 10);
-  const r = store.search({ q: '', tags: o.pushTags || [], from: from, sort: 'value', size: 80, minValue: o.pushMinValue || 5 });
   const pushed = new Set(cfg.pushedIds || []);
-  const items = (r.items || []).filter(x => !pushed.has(x.id)).slice(0, o.pushLimit || 8);
+  const items = selectDigestItems(o).filter(x => !pushed.has(x.id)).slice(0, o.pushLimit || 8);
 
   const lines = [];
   const today = new Date().toISOString().slice(0, 10);
@@ -185,11 +201,12 @@ export async function buildDigest(opts) {
   if (!items.length) {
     lines.push('');
     lines.push('今天没有新的高分羊毛/工具条目。可以放宽筛选条件，或先跑一次抓取。');
-    return { html: lines.join('\n'), items: [], count: 0 };
+    return { html: lines.join('\n'), items: [], count: 0, intro: '' };
   }
 
+  let intro = '';
   if (o.aiDigest && ai.hasKey()) {
-    const intro = await digestSummary(items, o);
+    intro = await digestSummary(items, o);
     if (intro) { lines.push(''); lines.push('📝 ' + esc(intro)); }
   }
 
@@ -209,7 +226,7 @@ export async function buildDigest(opts) {
   });
   let html = lines.join('\n');
   if (html.length > 3900) html = html.slice(0, 3900) + '\n…（内容过长已截断）';
-  return { html: html, items: items, count: items.length };
+  return { html: html, items: items, count: items.length, intro: intro };
 }
 
 export async function pushDigest(chatId, opts) {

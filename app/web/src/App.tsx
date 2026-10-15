@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Zap, Radio, Star, Sparkles, Link2, Bell, Search, X, Settings, FileText,
   Sun, Moon, Type, PanelRightClose, RefreshCw, SlidersHorizontal, BookmarkPlus, Bookmark, FileDown,
-  SearchX,
+  SearchX, Newspaper, HardDrive,
 } from 'lucide-react';
 import {
   search as searchApi, facets as facetsApi, getPost, related as relApi, getSettings, getClusterMembers,
@@ -13,6 +13,8 @@ import type { Post, Facets } from './api';
 import { PostCard } from './components/PostCard';
 import { Detail } from './components/Detail';
 import { ChatPanel } from './components/ChatPanel';
+import { BriefingPanel } from './components/BriefingPanel';
+import { NetdiskPanel } from './components/NetdiskPanel';
 import { SettingsModal } from './components/SettingsModal';
 import { AddSourceModal } from './components/AddSourceModal';
 import { TopProgress } from './components/TopProgress';
@@ -63,7 +65,7 @@ export default function App() {
   const [rel, setRel] = useState<Post[]>([]);
   const [cluster, setCluster] = useState<Post[]>([]);
   const [collapse, setCollapse] = useState(() => localStorage.getItem('tg.collapse') !== '0');
-  const [panel, setPanel] = useState<'chat' | 'detail'>('chat');
+  const [panel, setPanel] = useState<'chat' | 'detail' | 'briefing'>('chat');
   const [rightOpen, setRightOpen] = useState(true);
   const [favIds, setFavIds] = useState<number[]>([]);
   // 收藏的标签与备注。接口一直支持（favorites.tags / note），但界面从没用过 ——
@@ -89,7 +91,7 @@ export default function App() {
   const [cursor, setCursor] = useState(0);           // 键盘选中的卡片下标
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollPos = useRef<Record<string, number>>({});
-  const [view, setView] = useState<'feed' | 'favs'>('feed');
+  const [view, setView] = useState<'feed' | 'favs' | 'netdisk'>('feed');
   const [favPosts, setFavPosts] = useState<Post[]>([]);
   const [askPost, setAskPost] = useState<Post | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(() => params.get('settings') === '1');
@@ -412,6 +414,8 @@ export default function App() {
     out.push({ id: 'act:subs', label: '打开：关键词订阅', group: '操作', run: () => setSubsOpen(true) });
     out.push({ id: 'act:src', label: '打开：按链接抓取', group: '操作', run: () => setAddSourceOpen(true) });
     out.push({ id: 'act:ai', label: '打开：AI 情报助手', group: '操作', run: () => { setPanel('chat'); setRightOpen(true); } });
+    out.push({ id: 'act:briefing', label: '打开：今日简报', group: '操作', run: () => { setPanel('briefing'); setRightOpen(true); } });
+    out.push({ id: 'act:netdisk', label: '打开：网盘资源', group: '操作', run: () => setView('netdisk') });
     out.push({ id: 'act:settings', label: '打开：设置', group: '操作', run: () => setSettingsOpen(true) });
     // 之前这里是 dispatchEvent('tg:sync')，但监听它的组件在改版时删掉了，
     // 导致命令面板里这条命令点了没有任何反应（还查不出原因）。改成直接调用。
@@ -477,6 +481,10 @@ export default function App() {
           onClick={() => { setView('feed'); setCat(''); setTags([]); setChannel(''); setQ(''); }}><Radio size={17} strokeWidth={1.75} /></button>
         <button className={'rail-btn' + (view === 'favs' ? ' on' : '')} title={'我的收藏' + (favIds.length ? '（' + favIds.length + ' 条）' : '')} aria-label="我的收藏"
           onClick={showFavs}><Star size={17} strokeWidth={1.75} /></button>
+        <button className={'rail-btn' + (view === 'netdisk' ? ' on' : '')} title="网盘资源" aria-label="网盘资源"
+          onClick={() => { setView('netdisk'); }}><HardDrive size={17} strokeWidth={1.75} /></button>
+        <button className={'rail-btn' + (rightOpen && panel === 'briefing' ? ' on' : '')} title="今日简报" aria-label="今日简报"
+          onClick={() => { setPanel('briefing'); setRightOpen(true); }}><Newspaper size={17} strokeWidth={1.75} /></button>
         <button className={'rail-btn' + (rightOpen && panel === 'chat' ? ' on' : '')} title="AI 情报助手" aria-label="AI 情报助手"
           onClick={() => { setPanel('chat'); setRightOpen(true); }}><Sparkles size={17} strokeWidth={1.75} /></button>
         <button className="rail-btn" title="按链接抓取" aria-label="按链接抓取" onClick={() => setAddSourceOpen(true)}><Link2 size={17} strokeWidth={1.75} /></button>
@@ -502,6 +510,12 @@ export default function App() {
       <main style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <h1 className="sr-only">电报情报站 · 技术线报与项目雷达</h1>
         <TopProgress onOpenPost={id => openById(id)} />
+        {view === 'netdisk' && (
+          <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+            <NetdiskPanel onOpenPost={id => openById(id)} />
+          </div>
+        )}
+        <div style={{ display: view === 'netdisk' ? 'none' : 'contents' }}>
         <div className="surface" style={{ borderBottom: '1px solid var(--border-soft)', padding: '12px 16px 0' }}>
           <div style={{ display: 'flex', gap: 9, alignItems: 'center', flexWrap: 'wrap' }}>
             <div style={{ position: 'relative', flex: 1, minWidth: 260 }}>
@@ -670,6 +684,7 @@ export default function App() {
             </div>
           )}
         </div>
+        </div>
       </main>
 
       {/* ---------- right panel ---------- */}
@@ -681,11 +696,14 @@ export default function App() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '8px 10px', borderBottom: '1px solid var(--border-soft)' }}>
             <button className={'btn ghost' + (panel === 'chat' ? '' : '')} style={{ background: panel === 'chat' ? 'var(--bg-3)' : 'transparent', color: panel === 'chat' ? 'var(--fg)' : 'var(--fg-dim)' }} onClick={() => setPanel('chat')}><Sparkles size={14} strokeWidth={1.75} /> AI 助手</button>
             <button className="btn ghost" style={{ background: panel === 'detail' ? 'var(--bg-3)' : 'transparent', color: panel === 'detail' ? 'var(--fg)' : 'var(--fg-dim)' }} onClick={() => setPanel('detail')} disabled={!sel}><FileText size={14} strokeWidth={1.75} /> 详情</button>
+            <button className="btn ghost" style={{ background: panel === 'briefing' ? 'var(--bg-3)' : 'transparent', color: panel === 'briefing' ? 'var(--fg)' : 'var(--fg-dim)' }} onClick={() => setPanel('briefing')}><Newspaper size={14} strokeWidth={1.75} /> 简报</button>
             <span style={{ flex: 1 }} />
             <button className="btn ghost" onClick={() => setRightOpen(false)} title="收起" aria-label="收起右侧面板"><PanelRightClose size={15} strokeWidth={1.75} /></button>
           </div>
           <div style={{ flex: 1, overflow: 'hidden' }}>
-            {panel === 'chat'
+            {panel === 'briefing'
+              ? <BriefingPanel onOpenPost={openById} />
+              : panel === 'chat'
               ? <ChatPanel filters={filters} pendingPost={askPost} onConsumePending={() => setAskPost(null)} onOpenPost={openById} />
               : (sel
                 ? <div style={{ height: '100%', overflowY: 'auto' }}><Detail post={sel} rel={rel} relBy={relBy} cluster={cluster} fav={favIds.includes(sel.id)}

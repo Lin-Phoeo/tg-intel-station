@@ -159,7 +159,7 @@ export function SemanticPanel() {
       <div className="card" style={{ padding: '12px 14px', marginBottom: 12 }}>
         <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 13 }}>
           <span>已建立向量：<b>{Number(stats.indexed || 0).toLocaleString()}</b> 条</span>
-          <span>达标待建：<b>{Math.max(0, Number(stats.eligible || 0) - Number(stats.indexed || 0)).toLocaleString()}</b> 条</span>
+          <span>达标待建：<b>{Number(stats.pending || 0).toLocaleString()}</b> 条</span>
           {stats.dim ? <span>维度：<b>{stats.dim}</b></span> : null}
           {stats.model ? <span>模型：<b>{stats.model}</b></span> : null}
         </div>

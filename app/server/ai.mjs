@@ -291,6 +291,7 @@ export function cjkFragments(run) {
 }
 
 export function retrieve(question, filters, topK) {
+  filters = Object.assign({}, filters, { page: 1 });
   const seen = new Map();
   // 每条帖子命中了哪几个查询片段。
   // 只按价值分排序时，「免费」这种大词（1.7 万条命中）会把只沾了它一条的
@@ -323,7 +324,7 @@ export function retrieve(question, filters, topK) {
 
   // 1) 整句（最精确）
   if ([...whole].length >= 3) {
-    try { push(store.search(Object.assign({}, filters, { q: whole, size: 12, sort: 'relevance' })).items, 1.4, 'whole'); } catch (e) {}
+    try { push(store.search(Object.assign({}, filters, { q: whole, size: 12, sort: 'relevance', count: false })).items, 1.4, 'whole'); } catch (e) {}
   }
 
   // 2) 按标点切出的词
@@ -361,7 +362,7 @@ export function retrieve(question, filters, topK) {
   //    不要静默拿「全库高分」冒充检索结果 —— 那会让模型对着一堆无关材料回答，
   //    而界面还显示「检索到 12 条相关资料」。
   if (!seen.size) {
-    try { push(store.search(Object.assign({}, filters, { q: '', size: 6, sort: 'value' })).items, 0.15, 'fallback'); } catch (e) {}
+    try { push(store.search(Object.assign({}, filters, { q: '', size: 6, sort: 'value', count: false })).items, 0.15, 'fallback'); } catch (e) {}
   }
 
   // 命中越多不同片段，说明越贴题。这是把「免费 VPS」和「免费」区分开的关键。

@@ -57,11 +57,11 @@ export function TopProgress({ onOpenPost }: { onOpenPost?: (id: number) => void 
   const indexed = n(st.indexed), eligible = n(st.eligible);
   const building = !!(sem && sem.running);
   const syncing = !!(sync && sync.running);
-  const remain = Math.max(0, eligible - indexed);
+  const remain = n(st.pending);
   const pending = !building && remain > 0;
   if (!building && !syncing && !pending) return null;
 
-  const pct = eligible ? Math.min(100, (indexed / eligible) * 100) : 0;
+  const pct = eligible ? Math.max(0, Math.min(100, ((eligible - remain) / eligible) * 100)) : 0;
   const showHl = highlights.length > 0 && !hlClosed;
   const clearHl = () => { setHighlights([]); setHlClosed(true); };
   const stages = (sem && sem.stages) || [];
@@ -100,7 +100,7 @@ export function TopProgress({ onOpenPost }: { onOpenPost?: (id: number) => void 
         <span className="tpp-pct">{building || pending ? pct.toFixed(1) + '%' : (sync && sync.total ? Math.round((n(sync.done) / n(sync.total)) * 100) + '%' : '')}</span>
         <span className="tpp-sub">
           {building && <>
-            {indexed.toLocaleString() + ' / ' + eligible.toLocaleString() + ' 条'}
+            {Math.max(0, eligible - remain).toLocaleString() + ' / ' + eligible.toLocaleString() + ' 条达标内容'}
             {' · ' + (sem.stageText || '')}
             {sem.rate ? ' · ' + sem.rate.toFixed(1) + ' 条/秒' : ''}
             {' · 剩余 ' + fmtDur(sem.etaSec)}

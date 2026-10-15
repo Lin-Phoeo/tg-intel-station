@@ -57,6 +57,13 @@ test('search: 英文词走 FTS 并命中', () => {
   assert.ok(r.items.some(x => x.text.includes('GitHub')));
 });
 
+test('search: count false 跳过总数但保留结果', () => {
+  const full = store.search({ q: 'GitHub', size: 10 });
+  const fast = store.search({ q: 'GitHub', size: 10, count: false });
+  assert.deepEqual(fast.items.map(x => x.id), full.items.map(x => x.id));
+  assert.equal(fast.total, null);
+});
+
 test('search: 2 字词也走 FTS（单字分词后不再退化）', () => {
   const r = store.search({ q: '开源', size: 10 });
   assert.equal(r.mode, 'fts');

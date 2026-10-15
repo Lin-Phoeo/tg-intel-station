@@ -48,16 +48,17 @@ async function tick() {
 
   // 向量化
   const st = (sem && sem.stats) || {};
-  const indexed = Number(st.indexed || 0);
   const eligible = Number(st.eligible || 0);
+  const pending = Number(st.pending || 0);
   const running = !!(sem && sem.running);
-  const done = running ? (sem.done || 0) : indexed;
+  const done = running ? (sem.done || 0) : Math.max(0, eligible - pending);
   const total = running ? (sem.total || 0) : eligible;
-  const pct = total ? (done / total) * 100 : (eligible ? 100 : 0);
-  const color = running ? C.violet : (indexed >= eligible && eligible ? C.green : C.amber);
+  const pct = total ? (done / total) * 100 : 0;
+  const complete = pending === 0 && eligible > 0;
+  const color = running ? C.violet : (complete ? C.green : C.amber);
 
   out.push('');
-  out.push('  ' + color + (running ? '⟳ 向量化进行中' : (indexed >= eligible && eligible ? '✓ 向量索引已完成' : '⚠ 向量索引未完成')) + C.reset);
+  out.push('  ' + color + (running ? '⟳ 向量化进行中' : (complete ? '✓ 向量索引已完成' : '⚠ 向量索引未完成')) + C.reset);
   out.push('  ' + color + bar(pct, 44) + C.reset + '  ' + C.bold + pct.toFixed(1) + '%' + C.reset);
   out.push('  ' + C.dim + done.toLocaleString() + ' / ' + total.toLocaleString() + ' 条' +
     (sem && sem.failed ? '   失败 ' + C.amber + sem.failed + C.reset + C.dim : '') +

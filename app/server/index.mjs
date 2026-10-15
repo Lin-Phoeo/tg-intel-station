@@ -6,12 +6,16 @@ import { fileURLToPath } from 'node:url';
 import * as store from './store.mjs';
 import * as ai from './ai.mjs';
 import * as bot from './bot.mjs';
+import * as briefing from './briefing.mjs';
 import * as source from './source.mjs';
 import * as sync from './sync.mjs';
 import * as backup from './backup.mjs';
 import * as semantic from './semantic.mjs';
 import * as rag from './rag.mjs';
 import * as aiClassify from './ai-classify.mjs';
+import * as netdisk from './netdisk.mjs';
+import * as netdiskAi from './netdisk-ai.mjs';
+import { PLATFORMS } from '../../core/netdisk.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const DIST = path.join(ROOT, 'app', 'web', 'dist');
@@ -53,6 +57,21 @@ function filtersFrom(q) {
   return { category: q.category || '', channel: q.channel || '', from: q.from || '', to: q.to || '', tags: tags };
 }
 
+function netdiskQuery(q) {
+  const sort = ['date', 'value', 'title'].includes(q.sort) ? q.sort : 'date';
+  const dateOk = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
+  return {
+    platform: String(q.platform || '').slice(0, 40),
+    category: String(q.category || '').slice(0, 40),
+    q: String(q.q || '').slice(0, 100),
+    from: dateOk(q.from) ? q.from : '',
+    to: dateOk(q.to) ? q.to : '',
+    sort,
+    page: Math.max(1, Number(q.page) || 1),
+    size: Math.min(100, Math.max(1, Number(q.size) || 30)),
+  };
+}
+
 // 简单限速。虽然只监听本机，但一个跑飞的前端循环足以把 1.6GB 的库打满。
 const RATE_WINDOW = 1000;
 const RATE_MAX = 40;
@@ -68,6 +87,45 @@ setInterval(() => {
   const now = Date.now();
   for (const [k, e] of rateHits) if (now - e.at > RATE_WINDOW * 5) rateHits.delete(k);
 }, 60000).unref();
+
+function validateBriefingFilters(value) {
+  if (value == null) return {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('筛选条件格式无效');
+  const filters = {};
+  for (const key of ['category', 'channel']) {
+    if (value[key] != null && typeof value[key] !== 'string') throw new Error('筛选字段格式无效：' + key);
+    if (value[key]) filters[key] = value[key].slice(0, 200);
+  }
+  if (value.tags != null) {
+    if (!Array.isArray(value.tags) || value.tags.some(t => typeof t !== 'string')) throw new Error('标签筛选格式无效');
+    filters.tags = [...new Set(value.tags.map(t => t.slice(0, 80)))].slice(0, 40);
+  }
+  for (const key of ['from', 'to']) {
+    if (value[key] != null && value[key] !== '') {
+      const [year, month, day] = value[key].split('-').map(Number);
+      const parsed = new Date(year, month - 1, day);
+      if (typeof value[key] !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value[key]) || parsed.getFullYear() !== year || parsed.getMonth() !== month - 1 || parsed.getDate() !== day) throw new Error('日期格式无效：' + key);
+      filters[key] = value[key];
+    }
+  }
+  if (filters.from && filters.to && filters.from > filters.to) throw new Error('开始日期不能晚于结束日期');
+  if (value.minValue != null) {
+    if (!Number.isFinite(Number(value.minValue)) || Number(value.minValue) < 0 || Number(value.minValue) > 10) throw new Error('最低分范围无效');
+    filters.minValue = Number(value.minValue);
+  }
+  for (const key of ['windowDays', 'pushLimit']) {
+    if (value[key] != null && !Number.isFinite(Number(value[key]))) throw new Error('筛选字段格式无效：' + key);
+  }
+  if (value.windowDays != null) filters.windowDays = Math.min(3650, Math.max(1, Math.trunc(Number(value.windowDays))));
+  if (value.pushLimit != null) filters.pushLimit = Math.min(80, Math.max(1, Math.trunc(Number(value.pushLimit))));
+  if (value.aiDigest != null) filters.aiDigest = Boolean(value.aiDigest);
+  return filters;
+}
+
+function validateSelectedIds(value) {
+  if (!Array.isArray(value) || value.length > 80 || value.some(id => !Number.isSafeInteger(id) || id < 1)) throw new Error('所选条目格式无效');
+  return value;
+}
 
 async function api(req, res, pathname, query) {
   if (pathname === '/api/health') return send(res, 200, { ok: true, ts: Date.now() });
@@ -451,6 +509,100 @@ async function api(req, res, pathname, query) {
     } catch (e) { return send(res, 200, { ok: false, error: String(e.message || e) }); }
   }
 
+  if (pathname === '/api/briefing/preview' && req.method === 'POST') {
+    const body = await readBody(req);
+    try {
+      const filters = validateBriefingFilters(body && body.filters);
+      const result = briefing.previewSelection(filters);
+      return send(res, 200, { ok: true, candidates: result.items, count: result.count });
+    } catch (e) { return send(res, 400, { ok: false, error: String(e.message || e) }); }
+  }
+
+  if (pathname === '/api/briefing/generate-selected' && req.method === 'POST') {
+    const body = await readBody(req);
+    try {
+      const filters = validateBriefingFilters(body && body.filters);
+      const selectedIds = validateSelectedIds(body && body.selectedIds);
+      const d = await briefing.generateSelection(filters, selectedIds);
+      return send(res, 200, { ok: true, briefing: d });
+    } catch (e) { return send(res, 400, { ok: false, error: String(e.message || e) }); }
+  }
+
+  if (pathname === '/api/briefing') {
+    const bc = bot.loadConfig();
+    return send(res, 200, { latest: briefing.getLatest(), pushHour: Number(bc.pushHour == null ? 9 : bc.pushHour), defaults: {
+      pushTags: bc.pushTags || [], pushMinValue: Number(bc.pushMinValue == null ? 5 : bc.pushMinValue),
+      windowDays: Number(bc.windowDays == null ? 4 : bc.windowDays), pushLimit: Number(bc.pushLimit == null ? 8 : bc.pushLimit),
+      syncBeforeBriefing: !!bc.syncBeforeBriefing,
+    } });
+  }
+
+  if (pathname === '/api/briefing/run' && req.method === 'POST') {
+    try {
+      const d = await briefing.generate();
+      return send(res, 200, { ok: true, briefing: d });
+    } catch (e) { return send(res, 200, { ok: false, error: String(e.message || e) }); }
+  }
+
+  // ---------- 网盘资源 ----------
+  if (pathname === '/api/netdisk/facets') {
+    const f = store.netdiskFacets();
+    const labelOf = Object.fromEntries(PLATFORMS.map(p => [p.key, p.label]));
+    return send(res, 200, Object.assign({}, f, { platforms: f.platforms.map(p => Object.assign({}, p, { label: labelOf[p.k] || p.k })) }));
+  }
+
+  if (pathname === '/api/netdisk/scan/status') return send(res, 200, netdisk.getScanStatus());
+  if (pathname === '/api/netdisk/scan' && req.method === 'POST') {
+    const body = await readBody(req);
+    return send(res, 200, netdisk.startScan(body.mode === 'full' ? 'full' : 'incremental'));
+  }
+
+  if (pathname === '/api/netdisk/ai/status') return send(res, 200, Object.assign({}, netdiskAi.getStatus(), { pending: store.netdiskPendingCount() }));
+  if (pathname === '/api/netdisk/ai/stop' && req.method === 'POST') return send(res, 200, { ok: netdiskAi.requestStop() });
+  if (pathname === '/api/netdisk/ai' && req.method === 'POST') {
+    const body = await readBody(req);
+    const limit = Number(body.limit || 0);
+    if (!Number.isFinite(limit) || limit < 0 || limit > 100000) return send(res, 400, { ok: false, error: '条数范围无效' });
+    return send(res, 200, netdiskAi.startOrganize({ limit }));
+  }
+
+  if (pathname === '/api/netdisk/export') {
+    const opts = netdiskQuery(query);
+    const rows = store.netdiskExport(opts);
+    const fmt = query.format === 'csv' ? 'csv' : query.format === 'json' ? 'json' : 'md';
+    const stamp = new Date().toISOString().slice(0, 10);
+    if (fmt === 'json') {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': 'attachment; filename="netdisk-' + stamp + '.json"' });
+      return res.end(JSON.stringify(rows, null, 2));
+    }
+    if (fmt === 'csv') {
+      const esc = (s) => {
+        let v = String(s == null ? '' : s);
+        if (/^[=+\-@\t\r]/.test(v)) v = "'" + v;   // 中和 Excel 公式注入
+        return '"' + v.replace(/"/g, '""') + '"';
+      };
+      const head = ['platform', 'title', 'ai_title', 'category', 'tags', 'pwd', 'share_url', 'channel', 'post_date', 'value'];
+      const lines = [head.join(',')].concat(rows.map(r => [r.platform, r.title, r.aiTitle, r.category, r.tags, r.pwd, r.shareUrl, r.channel, r.postDate, r.value].map(esc).join(',')));
+      res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="netdisk-' + stamp + '.csv"' });
+      return res.end('﻿' + lines.join('\n'));
+    }
+    const md = ['# 网盘资源清单 · ' + stamp, '', '共 ' + rows.length + ' 条', ''].concat(rows.map(r => {
+      const t = r.aiTitle || r.title || '(无标题)';
+      const pwd = r.pwd ? ' 提取码 `' + r.pwd + '`' : '';
+      return '- **' + t + '** · ' + r.platform + (r.category ? ' · ' + r.category : '') + '\n  ' + r.shareUrl + pwd + '\n  来源 @' + r.channel + ' · ' + r.postDate;
+    }));
+    res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Content-Disposition': 'attachment; filename="netdisk-' + stamp + '.md"' });
+    return res.end(md.join('\n'));
+  }
+
+  if (pathname === '/api/netdisk') return send(res, 200, store.netdiskList(netdiskQuery(query)));
+
+  const mNd = pathname.match(/^\/api\/netdisk\/(\d+)$/);
+  if (mNd) {
+    const row = store.netdiskGet(Number(mNd[1]));
+    return row ? send(res, 200, row) : send(res, 404, { error: 'not found' });
+  }
+
   if (pathname === '/api/chat' && req.method === 'POST') {
     const body = await readBody(req);
     const question = String(body.question || '').slice(0, 2000);
@@ -515,7 +667,7 @@ function serveStatic(req, res, pathname) {
   });
 }
 
-const server = http.createServer(async (req, res) => {
+export const server = http.createServer(async (req, res) => {
   const pathname = new URL(req.url, 'http://localhost').pathname;
   if (req.method === 'OPTIONS') {
     res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST,OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' });
@@ -531,7 +683,8 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '127.0.0.1', () => {
+if (process.env.NODE_ENV !== 'test') {
+  server.listen(PORT, '127.0.0.1', () => {
   const f = store.facets();
   console.log('Telegram 情报站 running: http://127.0.0.1:' + PORT);
   console.log('索引帖子数:', (f.meta && f.meta.count) || '?');
@@ -541,4 +694,9 @@ server.listen(PORT, '127.0.0.1', () => {
     if (r.started) console.log('电报机器人: 已启动' + (b.pushChatId ? '，推送目标 ' + b.pushChatId : ''));
     else if (b.hasToken) console.log('电报机器人: 未启用（' + r.reason + '）');
   } catch (e) { console.log('电报机器人启动失败:', String(e.message || e)); }
+  try {
+    const br = briefing.start();
+    if (br.started) console.log('本地简报: 已启动（到点生成 + 桌面通知）');
+  } catch (e) { console.log('本地简报启动失败:', String(e.message || e)); }
 });
+}

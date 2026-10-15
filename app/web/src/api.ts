@@ -122,6 +122,39 @@ export async function getBotStatus(): Promise<any> {
   return (await fetch('/api/bot/status')).json();
 }
 
+export type Briefing = {
+  date: string; generatedAt: number; count: number; intro: string;
+  items: Array<{ id: number; channel: string; category: string; value: number; date: string; url: string; link: string; text: string }>;
+};
+export async function getBriefing(): Promise<{ latest: Briefing | null; pushHour: number; defaults?: { pushTags: string[]; pushMinValue: number; windowDays: number; pushLimit: number } }> {
+  const r = await fetch('/api/briefing');
+  if (!r.ok) throw new Error('读取简报失败：HTTP ' + r.status);
+  return r.json();
+}
+export async function runBriefing(): Promise<{ ok: boolean; briefing?: Briefing; error?: string }> {
+  const r = await fetch('/api/briefing/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  if (!r.ok) throw new Error('生成简报失败：HTTP ' + r.status);
+  return r.json();
+}
+
+export type BriefingCandidate = Briefing['items'][number];
+export type BriefingFilters = {
+  category?: string; channel?: string; tags?: string[]; from?: string; to?: string;
+  minValue?: number; windowDays?: number; pushLimit?: number; aiDigest?: boolean;
+};
+export async function previewBriefing(filters: BriefingFilters): Promise<{ ok: boolean; candidates: BriefingCandidate[]; count: number; error?: string }> {
+  const r = await fetch('/api/briefing/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filters }) });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || '预览筛选失败');
+  return data;
+}
+export async function generateSelectedBriefing(filters: BriefingFilters, selectedIds: number[]): Promise<{ ok: boolean; briefing?: Briefing; error?: string }> {
+  const r = await fetch('/api/briefing/generate-selected', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filters, selectedIds }) });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || '生成筛选简报失败');
+  return data;
+}
+
 // ---------- 链接抓取 ----------
 export type SourceJob = {
   id: string; input: string; status: string; phase: string;
@@ -240,6 +273,55 @@ export async function runSync(maxMessages?: number, by?: string): Promise<any> {
     body: JSON.stringify({ maxMessages, by }),
   });
   return r.json();
+}
+
+// ---------- 网盘资源 ----------
+export type NetdiskRow = {
+  id: number; platform: string; shareUrl: string; shareKey: string; pwd: string;
+  title: string; aiTitle: string; aiSummary: string; category: string; tags: string;
+  postId: number | null; channel: string; postDate: string; value: number;
+  sources: Array<{ post_id: number; channel: string; date: string; url: string; value: number }>;
+  mergeCount: number; aiAt: string | null;
+};
+export type NetdiskFilters = {
+  platform?: string; category?: string; q?: string; from?: string; to?: string;
+  sort?: string; page?: number; size?: number;
+};
+export type NetdiskResult = { total: number; page: number; size: number; items: NetdiskRow[] };
+export type NetdiskFacets = { platforms: { k: string; n: number; label?: string }[]; categories: { k: string; n: number }[]; total: number };
+
+export async function getNetdisk(f: NetdiskFilters): Promise<NetdiskResult> {
+  const r = await fetch('/api/netdisk?' + qs(f as any));
+  if (!r.ok) throw new Error('读取网盘资源失败 HTTP ' + r.status);
+  return r.json();
+}
+export async function getNetdiskFacets(): Promise<NetdiskFacets> {
+  return (await fetch('/api/netdisk/facets')).json();
+}
+export async function getNetdiskItem(id: number): Promise<NetdiskRow> {
+  const r = await fetch('/api/netdisk/' + id);
+  if (!r.ok) throw new Error('读取详情失败 HTTP ' + r.status);
+  return r.json();
+}
+export async function startNetdiskScan(mode: 'full' | 'incremental'): Promise<any> {
+  const r = await fetch('/api/netdisk/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }) });
+  return r.json();
+}
+export async function getNetdiskScanStatus(): Promise<any> {
+  return (await fetch('/api/netdisk/scan/status')).json();
+}
+export async function startNetdiskAi(limit: number): Promise<any> {
+  const r = await fetch('/api/netdisk/ai', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ limit }) });
+  return r.json();
+}
+export async function getNetdiskAiStatus(): Promise<any> {
+  return (await fetch('/api/netdisk/ai/status')).json();
+}
+export async function stopNetdiskAi(): Promise<any> {
+  return (await fetch('/api/netdisk/ai/stop', { method: 'POST' })).json();
+}
+export function netdiskExportUrl(f: NetdiskFilters, format: 'md' | 'csv' | 'json'): string {
+  return '/api/netdisk/export?' + qs({ ...(f as any), format });
 }
 
 export async function chat(body: any, h: ChatHandlers) {

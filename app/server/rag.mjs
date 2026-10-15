@@ -54,27 +54,9 @@ export function rrf(lists) {
   return [...score.entries()].sort((a, b) => b[1] - a[1]).map(e => ({ id: e[0], sc: e[1] }));
 }
 
-// 判断一条帖子是否满足筛选条件。向量分支不走 SQL，只能在这里过一遍。
-function matchFilters(p, f) {
-  const fl = f || {};
-  if (fl.cat && p.category !== fl.cat) return false;
-  if (fl.channel && p.channel !== fl.channel) return false;
-  if (fl.minValue != null && Number(p.value) < Number(fl.minValue)) return false;
-  if (fl.days) {
-    const from = Date.now() - Number(fl.days) * 86400000;
-    const t = Date.parse(String(p.date || '') + 'T00:00:00');
-    if (!isNaN(t) && t < from) return false;
-  }
-  if (fl.tags) {
-    const want = Array.isArray(fl.tags) ? fl.tags : String(fl.tags).split(',').filter(Boolean);
-    const has = p.tags || [];
-    for (const t of want) if (has.indexOf(t) < 0) return false;
-  }
-  return true;
-}
-
 // 关键词分支：沿用原来的多路召回（整句 / 分词 / n-gram），带特异性加权。
 function keywordRank(question, filters, limit) {
+  filters = Object.assign({}, filters, { page: 1 });
   const seen = new Map();
   const hits = new Map();
   const push = (items, weight, key) => {
@@ -100,7 +82,7 @@ function keywordRank(question, filters, limit) {
   const q = String(question || '').trim();
   const whole = q.replace(/[?？。，,！!]/g, ' ').trim();
   if ([...whole].length >= 3) {
-    try { push(store.search(Object.assign({}, filters, { q: whole, size: 12, sort: 'relevance' })).items, 1.4, 'whole'); } catch (e) {}
+    try { push(store.search(Object.assign({}, filters, { q: whole, size: 12, sort: 'relevance', count: false })).items, 1.4, 'whole'); } catch (e) {}
   }
   const topic = ai.stripQuestionPatterns(q) || q;
   const terms = store.splitTerms(topic).filter(t => [...t].length >= 2 && !ai.isStop(t));
@@ -127,7 +109,7 @@ function keywordRank(question, filters, limit) {
     } catch (e) {}
   }
   if (!seen.size) {
-    try { push(store.search(Object.assign({}, filters, { q: '', size: 6, sort: 'value' })).items, 0.15, 'fallback'); } catch (e) {}
+    try { push(store.search(Object.assign({}, filters, { q: '', size: 6, sort: 'value', count: false })).items, 0.15, 'fallback'); } catch (e) {}
   }
   const scored = [...seen.values()].map(x => {
     const n = (hits.get(x.post.id) || new Set()).size;
@@ -143,7 +125,8 @@ async function vectorRank(question, filters, limit) {
   try {
     const r = await semantic.semanticSearch(question, limit || 40);
     if (!r || !r.ok || !r.items || !r.items.length) return [];
-    return r.items.filter(p => matchFilters(p, filters));
+    const allowed = new Set(store.filterPostIds(r.items.map(p => p.id), filters));
+    return r.items.filter(p => allowed.has(p.id));
   } catch (e) { return []; }
 }
 

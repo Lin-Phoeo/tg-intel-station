@@ -35,7 +35,8 @@ function clearCounts() {
   qCounts.clear();
   countCache = { n: 0, at: 0 };
   facetCache = null;
-  embedEligibleCache = null;
+  embedEligibleCache.clear();
+  embedPendingCache.clear();
   tagCache = null;
 }
 
@@ -81,6 +82,21 @@ function createSchema() {
   db.exec('CREATE INDEX IF NOT EXISTS idx_posts_rep_cat_ts ON posts(is_rep, category, ts DESC)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_posts_rep_chan_ts ON posts(is_rep, channel, ts DESC)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_posts_rep_value ON posts(is_rep, value DESC)');
+  db.exec([
+    'CREATE TABLE IF NOT EXISTS netdisk_resources(',
+    '  id INTEGER PRIMARY KEY AUTOINCREMENT,',
+    "  platform TEXT NOT NULL, share_url TEXT, share_key TEXT NOT NULL, pwd TEXT DEFAULT '',",
+    "  title TEXT DEFAULT '', ai_title TEXT DEFAULT '', ai_summary TEXT DEFAULT '',",
+    "  category TEXT DEFAULT '', tags TEXT DEFAULT '',",
+    '  post_id INTEGER, channel TEXT, post_date TEXT, value REAL,',
+    "  sources TEXT DEFAULT '[]', merge_count INTEGER DEFAULT 1,",
+    '  created_at TEXT, updated_at TEXT, ai_at TEXT',
+    ')',
+  ].join('\n'));
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_nd_key ON netdisk_resources(platform, share_key)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_nd_platform ON netdisk_resources(platform)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_nd_category ON netdisk_resources(category)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_nd_ai ON netdisk_resources(ai_at)');
 }
 
 function migrate() {
@@ -107,6 +123,21 @@ function migrate() {
   db.exec('CREATE TABLE IF NOT EXISTS embeddings(post_id INTEGER PRIMARY KEY, vec BLOB, dim INTEGER, norm REAL, model TEXT, at TEXT)');
   db.exec("CREATE TABLE IF NOT EXISTS saved_searches(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, params TEXT NOT NULL, created_at TEXT)");
   db.exec("CREATE TABLE IF NOT EXISTS ai_labels(post_id INTEGER PRIMARY KEY, category TEXT, value REAL, reason TEXT, model TEXT, orig_category TEXT, orig_value REAL, at TEXT)");
+  db.exec([
+    'CREATE TABLE IF NOT EXISTS netdisk_resources(',
+    '  id INTEGER PRIMARY KEY AUTOINCREMENT,',
+    "  platform TEXT NOT NULL, share_url TEXT, share_key TEXT NOT NULL, pwd TEXT DEFAULT '',",
+    "  title TEXT DEFAULT '', ai_title TEXT DEFAULT '', ai_summary TEXT DEFAULT '',",
+    "  category TEXT DEFAULT '', tags TEXT DEFAULT '',",
+    '  post_id INTEGER, channel TEXT, post_date TEXT, value REAL,',
+    "  sources TEXT DEFAULT '[]', merge_count INTEGER DEFAULT 1,",
+    '  created_at TEXT, updated_at TEXT, ai_at TEXT',
+    ')',
+  ].join('\n'));
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_nd_key ON netdisk_resources(platform, share_key)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_nd_platform ON netdisk_resources(platform)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_nd_category ON netdisk_resources(category)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_nd_ai ON netdisk_resources(ai_at)');
 }
 
 function ensureSchema() {
@@ -460,33 +491,46 @@ export function setState(k, v) {
 }
 
 // ---------- 向量（语义检索）----------
-export function embedStats() {
+export function embedStats(minValue = 4) {
+  const threshold = Number(minValue);
   const d = open();
   const r = d.prepare('SELECT COUNT(*) AS n, MIN(dim) AS dim, MAX(model) AS model FROM embeddings').get();
-  return { indexed: r ? Number(r.n) : 0, dim: r && r.dim ? Number(r.dim) : 0, model: (r && r.model) || '', eligible: embedEligibleCount() };
+  return {
+    indexed: r ? Number(r.n) : 0,
+    dim: r && r.dim ? Number(r.dim) : 0,
+    model: (r && r.model) || '',
+    eligible: embedEligibleCount(threshold),
+    pending: postsNeedingEmbeddingCount(threshold),
+  };
 }
 
-// 「可向量化」的判定条件。必须只有这一处定义 ——
-// 之前 eligible 用「value >= 4」，取帖子用「value >= 4 且正文 >= 15 字」，
-// 两边不一致，导致正文过短的帖子既算进分母又永远取不出来，
-// 界面的「剩余 N 条」永远归不了零，一直卡在「待继续」。
-const EMBED_WHERE = 'p.value >= 4 AND LENGTH(p.text) >= 15';
-let embedEligibleCache = null;
+const EMBED_WHERE = 'p.value >= ? AND LENGTH(p.text) >= 15';
+const EMBED_PENDING_WHERE = 'e.post_id IS NULL AND ' + EMBED_WHERE;
+const embedEligibleCache = new Map();
+const embedPendingCache = new Map();
 
-// 可索引条数：只在新帖入库时变，但顶部进度条每 2.5 秒就要读一次。
-// 未缓存时是 280ms 的全表 COUNT，缓存后约 1ms。
-export function embedEligibleCount() {
-  if (embedEligibleCache != null) return embedEligibleCache;
-  const d = open();
-  const r = d.prepare('SELECT COUNT(*) AS n FROM posts p WHERE ' + EMBED_WHERE).get();
-  embedEligibleCache = r ? Number(r.n) : 0;
-  return embedEligibleCache;
+export function embedEligibleCount(minValue = 4) {
+  const threshold = Number(minValue);
+  if (embedEligibleCache.has(threshold)) return embedEligibleCache.get(threshold);
+  const r = open().prepare('SELECT COUNT(*) AS n FROM posts p WHERE ' + EMBED_WHERE).get(threshold);
+  const n = r ? Number(r.n) : 0;
+  embedEligibleCache.set(threshold, n);
+  return n;
 }
 
-// 取还需要向量化的帖子。只做价值分达标的，避免给 87 万条全量算。
+export function postsNeedingEmbeddingCount(minValue = 4) {
+  const threshold = Number(minValue);
+  if (embedPendingCache.has(threshold)) return embedPendingCache.get(threshold);
+  const r = open().prepare('SELECT COUNT(*) AS n FROM posts p LEFT JOIN embeddings e ON e.post_id = p.id WHERE ' + EMBED_PENDING_WHERE).get(threshold);
+  const n = r ? Number(r.n) : 0;
+  embedPendingCache.set(threshold, n);
+  return n;
+}
+
+// 计数和取批次必须是同一集合；低分旧向量不能抵消高分新帖的待办。
 export function postsNeedingEmbedding(limit, minValue) {
   const d = open();
-  return d.prepare('SELECT p.id, p.text FROM posts p LEFT JOIN embeddings e ON e.post_id = p.id WHERE e.post_id IS NULL AND p.value >= ? AND LENGTH(p.text) >= 15 ORDER BY p.value DESC LIMIT ?')
+  return d.prepare('SELECT p.id, p.text FROM posts p LEFT JOIN embeddings e ON e.post_id = p.id WHERE ' + EMBED_PENDING_WHERE + ' ORDER BY p.value DESC LIMIT ?')
     .all(Number(minValue == null ? 4 : minValue), Number(limit || 64))
     .map(r => ({ id: Number(r.id), text: String(r.text || '') }));
 }
@@ -498,6 +542,7 @@ export function saveEmbeddings(rows) {
   d.exec('BEGIN');
   for (const r of rows) stmt.run(r.id, r.vec, r.dim, r.norm, r.model || '', at);
   d.exec('COMMIT');
+  embedPendingCache.clear();
   return rows.length;
 }
 
@@ -507,7 +552,7 @@ export function loadEmbeddings() {
     .map(r => ({ id: Number(r.post_id), vec: fromBuffer(r.vec), norm: Number(r.norm) || 127 }));
 }
 
-export function clearEmbeddings() { open().exec('DELETE FROM embeddings'); return true; }
+export function clearEmbeddings() { open().exec('DELETE FROM embeddings'); embedPendingCache.clear(); return true; }
 
 export function getPostsByIds(ids) {
   const d = open();
@@ -523,12 +568,10 @@ export function clusterMembers(repId) {
     .all(Number(repId)).map(rowToPost);
 }
 
-export function search(opts) {
-  const { q = '', category = '', tags = [], channel = '', from = '', to = '', since = 0, sort = 'relevance', page = 1, size = 30, minValue = 0, collapse = true } = opts;
-  const d = open();
+function postFilters(opts = {}) {
+  const { category = '', tags = [], channel = '', from = '', to = '', since = 0, minValue = 0, collapse = true } = opts;
   const where = [];
   const params = [];
-
   if (category) { where.push('p.category = ?'); params.push(category); }
   if (channel) { where.push('p.channel = ?'); params.push(channel); }
   if (from) { where.push('p.date >= ?'); params.push(from); }
@@ -536,9 +579,24 @@ export function search(opts) {
   if (since) { where.push('p.ts > ?'); params.push(Number(since)); }
   if (minValue) { where.push('p.value >= ?'); params.push(minValue); }
   for (const t of tags) { where.push("(',' || p.tags || ',') LIKE ?"); params.push('%,' + t + ',%'); }
-  // 同事件聚合：默认只显示每个簇的代表条目。is_rep 有索引，计数与分页都是索引扫描。
-  // （is_rep 尚未回填时默认值为 1，等价于不折叠，对老数据安全）
+  // 老库未回填 rep_id 时 is_rep 仍默认 1，不能用 rep_id 代替这个条件。
   if (collapse) where.push('p.is_rep = 1');
+  return { where, params };
+}
+
+export function filterPostIds(ids, filters) {
+  if (!ids.length) return [];
+  const { where, params } = postFilters(filters);
+  const ph = ids.map(() => '?').join(',');
+  const w = where.length ? ' AND ' + where.join(' AND ') : '';
+  return open().prepare('SELECT p.id FROM posts p WHERE p.id IN (' + ph + ')' + w)
+    .all(...ids.map(Number), ...params).map(r => Number(r.id));
+}
+
+export function search(opts) {
+  const { q = '', sort = 'relevance', page = 1, size = 30, count = true } = opts || {};
+  const d = open();
+  const { where, params } = postFilters(opts);
 
   const qy = buildQuery(q, { mode: 'gram' });
   const terms = qy.terms;
@@ -559,10 +617,10 @@ export function search(opts) {
     const sql = 'SELECT ' + SELECT_COLS + ', ' + bm25Expr() + ' AS rank FROM posts_fts f CROSS JOIN posts p ON p.id = f.rowid WHERE posts_fts MATCH ?' + w + ' ORDER BY ' + orderSql + ' LIMIT ? OFFSET ?';
     try {
       rows = d.prepare(sql).all(expr, ...params, size, offset);
-      // 结果没填满一页，说明总数就等于返回条数 —— 不必再跑一次 COUNT。
-      // 检索编排里会对十几个片段各查一次库，这些片段大多是窄查询（填不满页），
-      // 省掉的正是它们。
-      if (rows.length < size) total = rows.length;
+      // 内部 fan-out 查询只要 items，不需要为每个整句/兜底查询计算总数。
+      // 普通搜索默认仍返回准确 total；count:false 时明确返回 null。
+      if (!count) total = null;
+      else if (offset === 0 && rows.length < size) total = rows.length;
       else total = cachedCount(expr + '|' + where.join('|') + '|' + params.join(','), () => {
         const c = d.prepare('SELECT COUNT(*) AS n FROM posts_fts f CROSS JOIN posts p ON p.id = f.rowid WHERE posts_fts MATCH ?' + w).get(expr, ...params);
         return c ? c.n : 0;
@@ -575,17 +633,21 @@ export function search(opts) {
       for (const t of terms) { likeW.push('p.text LIKE ?'); likeP.push('%' + t + '%'); }
       const lw = likeW.length ? ' WHERE ' + likeW.join(' AND ') : '';
       rows = d.prepare('SELECT ' + SELECT_COLS + ' FROM posts p' + lw + ' ORDER BY ' + orderBySimple(sort) + ' LIMIT ? OFFSET ?').all(...likeP, size, offset);
-      const lc = d.prepare('SELECT COUNT(*) AS n FROM (SELECT 1 FROM posts p' + lw + ' LIMIT 20000)').get(...likeP);
-      total = lc ? lc.n : 0;
+      if (count) {
+        const lc = d.prepare('SELECT COUNT(*) AS n FROM (SELECT 1 FROM posts p' + lw + ' LIMIT 20000)').get(...likeP);
+        total = lc ? lc.n : 0;
+      } else total = null;
     }
   } else {
     mode = 'browse';
     const w = where.length ? ' WHERE ' + where.join(' AND ') : '';
     const orderSql = orderBySimple(sort);
     rows = d.prepare('SELECT ' + SELECT_COLS + ' FROM posts p' + w + ' ORDER BY ' + orderSql + ' LIMIT ? OFFSET ?').all(...params, size, offset);
-    // 折叠条件命中 idx_posts_isrep；其余筛选条件下的总量按真实值统计
-    const c = d.prepare('SELECT COUNT(*) AS n FROM posts p' + w).get(...params);
-    total = c ? c.n : 0;
+    if (count) {
+      // 折叠条件命中 idx_posts_isrep；其余筛选条件下的总量按真实值统计
+      const c = d.prepare('SELECT COUNT(*) AS n FROM posts p' + w).get(...params);
+      total = c ? c.n : 0;
+    } else total = null;
   }
 
   return { mode, total, page: Number(page), size: Number(size), items: rows.map(rowToPost) };
@@ -707,4 +769,122 @@ export function textOf(id) {
   const d = open();
   const r = d.prepare('SELECT text, channel, date, url, value FROM posts WHERE id = ?').get(Number(id));
   return r || null;
+}
+
+// ---------- 网盘资源 ----------
+const ND_COLS = 'id,platform,share_url,share_key,pwd,title,ai_title,ai_summary,category,tags,post_id,channel,post_date,value,sources,merge_count,ai_at';
+
+function ndRow(r) {
+  return {
+    id: Number(r.id), platform: String(r.platform || ''), shareUrl: String(r.share_url || ''),
+    shareKey: String(r.share_key || ''), pwd: String(r.pwd || ''), title: String(r.title || ''),
+    aiTitle: String(r.ai_title || ''), aiSummary: String(r.ai_summary || ''),
+    category: String(r.category || ''), tags: String(r.tags || ''),
+    postId: r.post_id == null ? null : Number(r.post_id), channel: String(r.channel || ''),
+    postDate: String(r.post_date || ''), value: Number(r.value || 0),
+    sources: (() => { try { return JSON.parse(r.sources || '[]'); } catch (e) { return []; } })(),
+    mergeCount: Number(r.merge_count || 1), aiAt: r.ai_at || null,
+  };
+}
+
+export function netdiskUpsert(rec) {
+  const d = open();
+  const now = new Date().toISOString();
+  const src = { post_id: rec.postId, channel: rec.channel || '', date: rec.postDate || '', url: rec.postUrl || '', value: Number(rec.value || 0) };
+  const ex = d.prepare('SELECT id,sources,merge_count,post_id,value,pwd,title FROM netdisk_resources WHERE platform = ? AND share_key = ?').get(rec.platform, rec.shareKey);
+  if (!ex) {
+    const r = d.prepare("INSERT INTO netdisk_resources(platform,share_url,share_key,pwd,title,category,tags,post_id,channel,post_date,value,sources,merge_count,created_at,updated_at,ai_at) VALUES(?,?,?,?,?,'','',?,?,?,?,?,1,?,?,NULL)")
+      .run(rec.platform, rec.shareUrl || '', rec.shareKey, rec.pwd || '', rec.title || '', rec.postId, rec.channel || '', rec.postDate || '', Number(rec.value || 0), JSON.stringify([src]), now, now);
+    return { inserted: true, id: Number(r.lastInsertRowid) };
+  }
+  const id = Number(ex.id);
+  const list = (() => { try { return JSON.parse(ex.sources || '[]'); } catch (e) { return []; } })();
+  if (list.some(s => s.post_id === rec.postId)) return { merged: false, id };
+  list.push(src);
+  // 主来源取价值更高者；价值相同或更低时保留原主来源
+  const better = Number(rec.value || 0) > Number(ex.value || 0);
+  const mainId = better ? rec.postId : ex.post_id;
+  const mainValue = better ? Number(rec.value || 0) : Number(ex.value || 0);
+  d.prepare('UPDATE netdisk_resources SET sources = ?, merge_count = ?, updated_at = ?, post_id = ?, value = ?'
+    + (better ? ', channel = ?, post_date = ?' : '')
+    + ' WHERE id = ?')
+    .run(...(better
+      ? [JSON.stringify(list), list.length, now, mainId, mainValue, rec.channel || '', rec.postDate || '', id]
+      : [JSON.stringify(list), list.length, now, mainId, mainValue, id]));
+  // 补齐缺失的提取码/标题
+  if ((!ex.pwd && rec.pwd) || (!ex.title && rec.title)) {
+    d.prepare("UPDATE netdisk_resources SET pwd = COALESCE(NULLIF(pwd,''),?), title = COALESCE(NULLIF(title,''),?) WHERE id = ?")
+      .run(rec.pwd || '', rec.title || '', id);
+  }
+  return { merged: true, id };
+}
+
+function netdiskFilters(opts) {
+  const { platform = '', category = '', q = '', from = '', to = '' } = opts || {};
+  const where = [];
+  const params = [];
+  if (platform) { where.push('platform = ?'); params.push(platform); }
+  if (category) { where.push('category = ?'); params.push(category); }
+  if (from) { where.push('post_date >= ?'); params.push(from); }
+  if (to) { where.push('post_date <= ?'); params.push(to); }
+  if (q) { where.push('(title LIKE ? OR ai_title LIKE ? OR tags LIKE ?)'); const like = '%' + q + '%'; params.push(like, like, like); }
+  return { where, params };
+}
+
+export function netdiskList(opts) {
+  const { sort = 'date', page = 1, size = 30 } = opts || {};
+  const d = open();
+  const { where, params } = netdiskFilters(opts);
+  const w = where.length ? ' WHERE ' + where.join(' AND ') : '';
+  const order = sort === 'value' ? 'value DESC, id DESC'
+    : sort === 'title' ? "COALESCE(NULLIF(ai_title,''),title) ASC"
+    : "COALESCE(post_date,'') DESC, id DESC";
+  const lim = Math.min(100, Math.max(1, Number(size) || 30));
+  const off = (Math.max(1, Number(page) || 1) - 1) * lim;
+  const items = d.prepare('SELECT ' + ND_COLS + ' FROM netdisk_resources' + w + ' ORDER BY ' + order + ' LIMIT ? OFFSET ?').all(...params, lim, off).map(ndRow);
+  const total = Number(d.prepare('SELECT COUNT(*) AS n FROM netdisk_resources' + w).get(...params).n);
+  return { total, page: Number(page) || 1, size: lim, items };
+}
+
+// 导出用：不分页，一次取回筛选结果。不传 limit 则不加 LIMIT（全量导出）。
+export function netdiskExport(opts, limit) {
+  const d = open();
+  const { where, params } = netdiskFilters(opts);
+  const w = where.length ? ' WHERE ' + where.join(' AND ') : '';
+  const lim = Number(limit) > 0 ? ' LIMIT ' + Math.trunc(Number(limit)) : '';
+  return d.prepare('SELECT ' + ND_COLS + ' FROM netdisk_resources' + w + " ORDER BY COALESCE(post_date,'') DESC, id DESC" + lim)
+    .all(...params).map(ndRow);
+}
+
+export function netdiskFacets() {
+  const d = open();
+  const platforms = d.prepare('SELECT platform AS k, COUNT(*) AS n FROM netdisk_resources GROUP BY platform ORDER BY n DESC').all();
+  const categories = d.prepare("SELECT category AS k, COUNT(*) AS n FROM netdisk_resources WHERE category != '' GROUP BY category ORDER BY n DESC").all();
+  const total = Number(d.prepare('SELECT COUNT(*) AS n FROM netdisk_resources').get().n);
+  return { platforms, categories, total };
+}
+
+export function netdiskGet(id) {
+  const r = open().prepare('SELECT ' + ND_COLS + ' FROM netdisk_resources WHERE id = ?').get(Number(id));
+  return r ? ndRow(r) : null;
+}
+
+export function netdiskPendingCount() {
+  return Number(open().prepare('SELECT COUNT(*) AS n FROM netdisk_resources WHERE ai_at IS NULL').get().n);
+}
+
+export function netdiskPending(limit) {
+  return open().prepare('SELECT r.id, r.title, p.text FROM netdisk_resources r LEFT JOIN posts p ON p.id = r.post_id WHERE r.ai_at IS NULL ORDER BY r.id ASC LIMIT ?')
+    .all(Number(limit || 20))
+    .map(r => ({ id: Number(r.id), title: String(r.title || ''), text: String(r.text || '') }));
+}
+
+export function netdiskSaveAi(rows) {
+  const d = open();
+  const at = new Date().toISOString();
+  const stmt = d.prepare('UPDATE netdisk_resources SET category = ?, tags = ?, ai_summary = ?, ai_title = ?, ai_at = ? WHERE id = ?');
+  d.exec('BEGIN');
+  for (const r of rows) stmt.run(r.category || '', r.tags || '', r.summary || '', r.aiTitle || '', at, Number(r.id));
+  d.exec('COMMIT');
+  return rows.length;
 }

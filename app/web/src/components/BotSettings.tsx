@@ -6,7 +6,7 @@ type Cfg = {
   autoPush: boolean; pushHour: number; pushMinValue: number; pushTags: string[]; pushLimit: number;
   windowDays: number; allowAsk: boolean; lastPushDate: string; pushedCount: number;
   ingestGroups: boolean; ingestedCount: number; lastIngest: any;
-  aiDigest: boolean; digestProfile: string;
+  aiDigest: boolean; digestProfile: string; syncBeforeBriefing?: boolean;
 };
 const TAGS = ['免费', '限时', '开源', '教程', '节点', '账号', '需注册', '破解'];
 
@@ -44,7 +44,7 @@ export function BotSettings() {
       enabled: cfg.enabled, pushChatId: cfg.pushChatId, allowedChatIds: cfg.allowedChatIds,
       autoPush: cfg.autoPush, pushHour: Number(cfg.pushHour), pushMinValue: Number(cfg.pushMinValue),
       pushTags: cfg.pushTags, pushLimit: Number(cfg.pushLimit), windowDays: Number(cfg.windowDays),
-      allowAsk: cfg.allowAsk, ingestGroups: cfg.ingestGroups, aiDigest: cfg.aiDigest, restart: restart,
+      allowAsk: cfg.allowAsk, ingestGroups: cfg.ingestGroups, aiDigest: cfg.aiDigest, syncBeforeBriefing: !!cfg.syncBeforeBriefing, restart: restart,
     };
     if (token.trim()) payload.token = token.trim();
     const r = await saveBot(payload);
@@ -171,16 +171,23 @@ export function BotSettings() {
             </select>
           </div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13.5 }}>
-            <input type="checkbox" checked={cfg.allowAsk} onChange={e => upd('allowAsk', e.target.checked)} style={{ width: 'auto', margin: 0 }} />
-            允许群内 /ask 提问（消耗 AI 额度）
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13.5 }}>
             <input type="checkbox" checked={cfg.aiDigest} onChange={e => upd('aiDigest', e.target.checked)} style={{ width: 'auto', margin: 0 }} />
             AI 导读（日报开头加一段模型点评，消耗 AI 额度）
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13.5 }}>
+            <input type="checkbox" checked={!!cfg.syncBeforeBriefing} onChange={e => upd('syncBeforeBriefing', e.target.checked)} style={{ width: 'auto', margin: 0 }} />
+            生成日报前自动同步所有来源
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13.5 }}>
+            <input type="checkbox" checked={cfg.allowAsk} onChange={e => upd('allowAsk', e.target.checked)} style={{ width: 'auto', margin: 0 }} />
+            允许群内 /ask 提问（消耗 AI 额度）
           </label>
         </div>
         <div style={{ fontSize: 12, color: 'var(--fg-mute)', marginTop: 10 }}>
           自动推送只会发**没推过的新条目**（已推送的会记住，不会重复刷屏）。服务需要在推送时间处于运行状态。
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--fg-mute)', marginTop: 8 }}>
+          本地「今日简报」也使用这些条件和推送时间，不需要启用机器人。启动后已过设定时间会补生成当天简报，不补往日。
         </div>
       </div>
 
